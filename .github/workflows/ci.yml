@@ -57,5 +57,6 @@ jobs:
           pip install pip-audit
 
       - name: Audit dependencies
-        # CVE-2026-33682 is Windows-only SSRF; this app runs on Linux/Mac only
-        run: pip-audit --desc --ignore-vuln CVE-2026-33682
+        # CVE-2026-33682: streamlit Windows-only SSRF, not applicable on Linux/Mac
+        # CVE-2026-25990/CVE-2026-40192: pillow PSD/FITS image parsing, not used in this app
+        run: pip-audit --desc --ignore-vuln CVE-2026-33682 --ignore-vuln CVE-2026-25990 --ignore-vuln CVE-2026-40192
