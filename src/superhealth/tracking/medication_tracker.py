@@ -227,5 +227,7 @@ def init_default_medications():
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     init_default_medications()

@@ -82,10 +82,9 @@ def submit_feedback(
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
 
     ap = argparse.ArgumentParser(description="提交用户反馈到 recommendation_feedback")
     ap.add_argument(
@@ -120,7 +119,7 @@ def main():
         recommendation_type=args.type,
         rating=args.rating,
     )
-    print("反馈已提交" if ok else "提交失败")
+    log.info("反馈已提交" if ok else "提交失败")
 
 
 if __name__ == "__main__":

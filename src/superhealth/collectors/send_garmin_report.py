@@ -12,8 +12,8 @@ from pathlib import Path
 
 from superhealth import config as cfg
 
-_PKG_DIR = Path(__file__).parent.parent  # src/healthy/
-BASE_DIR = _PKG_DIR.parent.parent  # healthy/ (project root)
+_PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
+BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
 DATA_DIR = BASE_DIR / "activity-data"
 REPORTS_DIR = DATA_DIR / "reports"
 
@@ -28,8 +28,9 @@ def send_report(day_str: str) -> int:
     conf = cfg.load()
     if not conf.wechat.is_complete():
         print(
-            "错误：微信配置不完整。请创建 ~/.healthy/config.toml 或设置环境变量\n"
-            "  HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET",
+            "错误：微信配置不完整。请创建 ~/.superhealth/config.toml 或设置环境变量\n"
+            "  HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET\n"
+            "  （或 SUPERHEALTH_WECHAT_ACCOUNT_ID / SUPERHEALTH_WECHAT_CHANNEL / SUPERHEALTH_WECHAT_TARGET）",
             file=sys.stderr,
         )
         return 1
@@ -64,8 +65,7 @@ def send_advanced_report(
 ) -> int:
     """发送 Phase 4 高级健康日报（含 LLM 建议和多模型评估）。"""
     text = path.read_text(encoding="utf-8")
-    print(f"DEBUG: Reading file: {path}", file=sys.stderr)
-    print(f"DEBUG: First line: {text.split(chr(10))[0]}", file=sys.stderr)
+    log.debug("Reading file: %s, first line: %s", path, text.split("\n")[0])
 
     # 用 openclaw message send 直接发送，绕过 agent 记忆系统
     cmd = [

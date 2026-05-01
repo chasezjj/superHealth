@@ -1,6 +1,6 @@
-"""配置管理：读取 ~/.healthy/config.toml，环境变量优先。
+"""配置管理：读取 ~/.superhealth/config.toml，环境变量优先。
 
-配置文件示例（~/.healthy/config.toml）：
+配置文件示例（~/.superhealth/config.toml）：
 
     [garmin]
     email    = "your_email_or_phone"
@@ -20,10 +20,15 @@
     HEALTHY_GARMIN_EMAIL / HEALTHY_GARMIN_PASSWORD
     HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET
     HEALTHY_VITALS_API_TOKEN / HEALTHY_VITALS_HOST / HEALTHY_VITALS_PORT
+    SUPERHEALTH_DB                       # 数据库路径覆盖
+
+    注：HEALTHY_* 前缀为历史遗留，新增配置建议使用 SUPERHEALTH_* 前缀。
+    SUPERHEALTH_DB 优先于默认的 health.db 路径。
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,7 +42,51 @@ except ImportError:
     except ImportError:
         tomllib = None  # type: ignore[assignment]
 
-CONFIG_PATH = Path.home() / ".healthy" / "config.toml"
+CONFIG_PATH = Path.home() / ".superhealth" / "config.toml"
+
+
+def hash_password(password: str) -> str:
+    """Hash a password with PBKDF2-HMAC-SHA256 (200k iterations, 32-byte salt)."""
+    salt = os.urandom(32).hex()
+    hashed = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt), 200_000
+    ).hex()
+    return f"pbkdf2:sha256:200000${salt}${hashed}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored hash (pbkdf2$iter$salt$hash or legacy salt$hash)."""
+    import hmac as _hmac
+
+    if "$" not in stored:
+        # Legacy plaintext — migrate on next save
+        return _hmac.compare_digest(password, stored)
+
+    # Support legacy single-round SHA-256 hashes (salt$hash)
+    if stored.count("$") == 1:
+        salt, hashed = stored.split("$", 1)
+        check = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
+        return _hmac.compare_digest(check, hashed)
+
+    # PBKDF2 format: pbkdf2:sha256:iter$salt$hash
+    prefix, salt, hashed = stored.split("$", 2)
+    # Extract iteration count from prefix like "pbkdf2:sha256:200000"
+    try:
+        iterations = int(prefix.rsplit(":", 1)[-1])
+    except ValueError:
+        iterations = 200_000
+    check = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt), iterations
+    ).hex()
+    return _hmac.compare_digest(check, hashed)
+
+
+def get_db_path() -> Path:
+    """Return the database path, checking env var first, then default."""
+    env = os.environ.get("SUPERHEALTH_DB")
+    if env:
+        return Path(env)
+    return Path(__file__).parent.parent.parent / "health.db"
 
 
 @dataclass
@@ -170,20 +219,21 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
     )
 
     claude_raw = raw.get("claude", {})
-    # config.toml 优先级高于环境变量（用于支持代理配置）
+    # 环境变量优先级高于 config.toml（与其他配置保持一致）
     claude = ClaudeConfig(
-        api_key=claude_raw.get("api_key", "")
-        or os.environ.get("ANTHROPIC_API_KEY", "")
-        or os.environ.get("HEALTHY_CLAUDE_API_KEY", ""),
-        model=claude_raw.get("model", "")
-        or os.environ.get("HEALTHY_CLAUDE_MODEL", "")
+        api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+        or os.environ.get("HEALTHY_CLAUDE_API_KEY", "")
+        or claude_raw.get("api_key", ""),
+        model=os.environ.get("HEALTHY_CLAUDE_MODEL", "")
+        or claude_raw.get("model", "")
         or "claude-sonnet-4-6",
         max_tokens=int(
-            claude_raw.get("max_tokens", 0) or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 1024)
+            os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 0)
+            or claude_raw.get("max_tokens", 1024)
         ),
-        base_url=claude_raw.get("base_url", "")
-        or os.environ.get("ANTHROPIC_BASE_URL", "")
-        or os.environ.get("HEALTHY_CLAUDE_BASE_URL", ""),
+        base_url=os.environ.get("ANTHROPIC_BASE_URL", "")
+        or os.environ.get("HEALTHY_CLAUDE_BASE_URL", "")
+        or claude_raw.get("base_url", ""),
     )
 
     weather_raw = raw.get("weather", {})
@@ -287,7 +337,7 @@ def save_dashboard_session_token(token: str, config_path: Path = CONFIG_PATH) ->
 
 
 def save_dashboard_password(password: str, config_path: Path = CONFIG_PATH) -> None:
-    """将用户记住的密码写入 config.toml（保留其他 section）。"""
+    """将用户记住的密码 hash 写入 config.toml（保留其他 section）。"""
     try:
         import tomli_w  # type: ignore[import-not-found]
     except ImportError:
@@ -300,7 +350,7 @@ def save_dashboard_password(password: str, config_path: Path = CONFIG_PATH) -> N
 
     raw.setdefault("dashboard", {})
     if password:
-        raw["dashboard"]["saved_password"] = password
+        raw["dashboard"]["saved_password"] = hash_password(password)
     else:
         raw["dashboard"].pop("saved_password", None)
 

@@ -18,6 +18,40 @@ from superhealth.models import DailyHealth
 
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "health.db"
 
+# Whitelist of allowed columns for kwargs-based insert functions
+_EYE_EXAM_COLS = {
+    "date", "doctor", "hospital", "od_vision", "od_iop", "od_cd_ratio",
+    "os_vision", "os_iop", "os_cd_ratio", "fundus_note", "prescription", "note",
+}
+_KIDNEY_ULTRASOUND_COLS = {
+    "date", "right_length_cm", "right_finding", "left_length_cm", "left_finding",
+    "right_ureter", "left_ureter", "prostate", "conclusion", "doctor",
+}
+_ANNUAL_CHECKUP_COLS = {
+    "checkup_date", "institution", "height_cm", "weight_kg", "bmi", "systolic",
+    "diastolic", "heart_rate", "uric_acid", "creatinine", "urea", "cystatin_c",
+    "total_cholesterol", "triglyceride", "ldl_c", "hdl_c", "fasting_glucose",
+    "hba1c", "alt", "ast", "ggt", "wbc", "rbc", "hgb", "hct", "plt", "t3", "t4",
+    "tsh", "afp", "cea", "t_psa", "nse", "cyfra211", "vision_right", "vision_left",
+    "iop_right", "iop_left", "cup_disc_ratio", "thyroid_note", "lung_note",
+    "ultrasound_note", "abnormal_summary", "raw_text",
+}
+_MEDICATION_COLS = {
+    "name", "condition", "start_date", "end_date", "dosage", "frequency", "note",
+}
+_MEDICATION_EFFECT_COLS = {
+    "medication_id", "lab_result_id", "eye_exam_id", "checkup_date",
+    "expected_effect", "actual_effect", "is_effective", "note",
+}
+
+
+def _validate_kwargs(kwargs: dict, allowed: set[str], func_name: str) -> dict:
+    """Validate kwargs keys against allowed column names."""
+    invalid = set(kwargs.keys()) - allowed
+    if invalid:
+        raise ValueError(f"{func_name}: unknown column(s): {invalid}")
+    return kwargs
+
 
 @contextmanager
 def get_conn(db_path: Path = DEFAULT_DB_PATH):
@@ -333,7 +367,8 @@ def insert_lab_result(
 
 
 def insert_eye_exam(conn: sqlite3.Connection, **kwargs):
-    cols = ", ".join(kwargs.keys())
+    _validate_kwargs(kwargs, _EYE_EXAM_COLS, "insert_eye_exam")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
     placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO eye_exams ({cols}) VALUES ({placeholders})",
@@ -345,7 +380,8 @@ def insert_eye_exam(conn: sqlite3.Connection, **kwargs):
 
 
 def insert_kidney_ultrasound(conn: sqlite3.Connection, **kwargs):
-    cols = ", ".join(kwargs.keys())
+    _validate_kwargs(kwargs, _KIDNEY_ULTRASOUND_COLS, "insert_kidney_ultrasound")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
     placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO kidney_ultrasounds ({cols}) VALUES ({placeholders})",
@@ -407,9 +443,10 @@ def query_vitals_by_date(conn: sqlite3.Connection, date_str: str) -> Optional[di
 
 def upsert_annual_checkup(conn: sqlite3.Connection, **kwargs):
     """写入或更新一次年度体检记录（以 checkup_date 为唯一键）。"""
-    cols = ", ".join(kwargs.keys())
+    _validate_kwargs(kwargs, _ANNUAL_CHECKUP_COLS, "upsert_annual_checkup")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
     placeholders = ", ".join(["?"] * len(kwargs))
-    updates = ", ".join(f"{k}=excluded.{k}" for k in kwargs if k != "checkup_date")
+    updates = ", ".join(f'"{k}"=excluded."{k}"' for k in kwargs if k != "checkup_date")
     conn.execute(
         f"INSERT INTO annual_checkups ({cols}) VALUES ({placeholders})"
         f" ON CONFLICT(checkup_date) DO UPDATE SET {updates}",
@@ -421,7 +458,8 @@ def upsert_annual_checkup(conn: sqlite3.Connection, **kwargs):
 
 
 def insert_medication(conn: sqlite3.Connection, **kwargs):
-    cols = ", ".join(kwargs.keys())
+    _validate_kwargs(kwargs, _MEDICATION_COLS, "insert_medication")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
     placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO medications ({cols}) VALUES ({placeholders})",
@@ -464,7 +502,8 @@ def insert_medication_effect(conn: sqlite3.Connection, **kwargs):
     - is_effective: 1=有效, 0=无效, NULL=待评估
     - note: 备注
     """
-    cols = ", ".join(kwargs.keys())
+    _validate_kwargs(kwargs, _MEDICATION_EFFECT_COLS, "insert_medication_effect")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
     placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO medication_effects ({cols}) VALUES ({placeholders})",
@@ -1286,16 +1325,18 @@ def query_failed_sync_dates(
     source: str = "garmin",
 ) -> list[str]:
     """查询最近 N 天内指定步骤失败的日期列表（去重，升序）。"""
+    if not isinstance(since_days, int) or since_days < 0:
+        raise ValueError("since_days must be a non-negative integer")
     rows = conn.execute(
         """
         SELECT DISTINCT date FROM sync_logs
         WHERE source = ?
           AND step = ?
           AND status = 'failure'
-          AND created_at >= datetime('now', '-{} days', 'localtime')
+          AND created_at >= datetime('now', '-' || ? || ' days', 'localtime')
         ORDER BY date ASC
-        """.format(since_days),
-        (source, step),
+        """,
+        (source, step, str(since_days)),
     ).fetchall()
     return [row["date"] for row in rows]
 

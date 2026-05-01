@@ -209,10 +209,9 @@ class LLMInsightsGenerator:
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     ap = argparse.ArgumentParser(description="生成健康周报")
     ap.add_argument("--date", type=str, help="结束日期 (YYYY-MM-DD)，默认今天")
     ap.add_argument("--no-save", action="store_true", help="不保存文件")
@@ -220,7 +219,7 @@ def main():
 
     generator = LLMInsightsGenerator()
     report = generator.generate_weekly_report(args.date, save=not args.no_save)
-    print(report)
+    log.info("周报已生成:\n%s", report)
 
 
 if __name__ == "__main__":

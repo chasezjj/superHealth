@@ -74,3 +74,38 @@ class TestWechatConfigIsComplete:
     def test_all_empty(self):
         w = cfg.WechatConfig()
         assert w.is_complete() is False
+
+
+class TestPasswordHashing:
+    def test_hash_and_verify(self):
+        hashed = cfg.hash_password("mypassword")
+        assert "$" in hashed
+        assert cfg.verify_password("mypassword", hashed)
+
+    def test_wrong_password_fails(self):
+        hashed = cfg.hash_password("mypassword")
+        assert not cfg.verify_password("wrong", hashed)
+
+    def test_each_hash_is_unique(self):
+        h1 = cfg.hash_password("same")
+        h2 = cfg.hash_password("same")
+        assert h1 != h2  # different salts
+        assert cfg.verify_password("same", h1)
+        assert cfg.verify_password("same", h2)
+
+    def test_plaintext_migration(self):
+        """Legacy plaintext passwords should still work."""
+        assert cfg.verify_password("plain", "plain")
+
+
+class TestGetDbPath:
+    def test_default_path(self):
+        with patch.dict(os.environ, {}, clear=True):
+            path = cfg.get_db_path()
+            assert path.name == "health.db"
+
+    def test_env_override(self):
+        with patch.dict(os.environ, {"SUPERHEALTH_DB": "/tmp/custom.db"}):
+            path = cfg.get_db_path()
+            assert str(path) == "/tmp/custom.db"
+

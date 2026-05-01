@@ -1,9 +1,13 @@
 """Streamlit 仪表盘入口。
 
 启动方式：
-    cd /Users/chasez/ClaudeWorkspace/healthy
-    PYTHONPATH=src streamlit run src/healthy/dashboard/app.py
+    cd superhealth
+    PYTHONPATH=src streamlit run src/superhealth/dashboard/app.py --server.port=8505
 """
+
+from superhealth.log_config import setup_logging
+
+setup_logging()
 
 import streamlit as st
 
@@ -21,11 +25,11 @@ def _login_gate() -> bool:
         return True
 
     from superhealth.config import load as load_config
-    from superhealth.config import save_dashboard_password
+    from superhealth.config import save_dashboard_password, verify_password
 
     config = load_config()
-    correct = config.dashboard.password
-    if not correct:  # 未配置密码则直接放行
+    stored = config.dashboard.password
+    if not stored:  # 未配置密码则直接放行
         st.session_state["authenticated"] = True
         return True
 
@@ -34,14 +38,14 @@ def _login_gate() -> bool:
     pwd = st.text_input(
         "密码",
         type="password",
-        value=config.dashboard.saved_password,
+        value="",
         key="login_pwd",
     )
     remember = st.checkbox(
-        "记住密码", key="login_remember", value=bool(config.dashboard.saved_password)
+        "记住密码", key="login_remember", value=False
     )
     if st.button("登录", key="login_btn"):
-        if pwd == correct:
+        if verify_password(pwd, stored):
             st.session_state["authenticated"] = True
             if remember:
                 save_dashboard_password(pwd)

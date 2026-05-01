@@ -39,11 +39,11 @@ _SSL_CTX = ssl.create_default_context()
 # 保留系统默认 SSL 验证，不全局禁用证书检查
 
 from superhealth import database as db
-from superhealth.config import load as load_config
+from superhealth.config import get_db_path, load as load_config
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 # 降水类型代码（和风天气 icon code 映射）
 # 参考：https://dev.qweather.com/docs/resource/icons/
@@ -247,7 +247,7 @@ def fetch_weather(target_date: str = None, db_path: Path = DB_PATH) -> Optional[
 
     # DB 无数据，尝试 API 采集
     if not weather_cfg.is_complete():
-        log.warning("天气 API key 未配置（~/.healthy/config.toml [weather] api_key），跳过天气采集")
+        log.warning("天气 API key 未配置（~/.superhealth/config.toml [weather] api_key），跳过天气采集")
         return None
 
     location_id = weather_cfg.location_id
@@ -404,7 +404,9 @@ def fetch_weather(target_date: str = None, db_path: Path = DB_PATH) -> Optional[
 
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     ap = argparse.ArgumentParser(description="采集当日天气数据")
     ap.add_argument("--date", type=str, help="目标日期 YYYY-MM-DD，默认今天")
     args = ap.parse_args()

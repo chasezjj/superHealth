@@ -20,4 +20,4 @@
 
 - 所有 API Key 和密码存储在本地 `~/.superhealth/config.toml`，权限设置为 `0o600`
 - 数据库文件 `health.db` 包含敏感健康数据，请勿提交到版本控制
-- 定期更新依赖以修复已知漏洞：`pip install -U -r requirements.txt`
+- 定期更新依赖以修复已知漏洞：`pip install -U -e ".[all]"`

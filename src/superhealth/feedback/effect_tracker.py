@@ -253,7 +253,9 @@ class EffectTracker:
 
         winner = max(exercise_rows, key=score)
         # 统一返回 dict，避免调用方收到 sqlite3.Row
-        return dict(winner) if not hasattr(winner, "get") else winner
+        if hasattr(winner, "keys"):  # sqlite3.Row 有 .keys() 方法
+            return dict(winner)
+        return winner
 
     @staticmethod
     def _metric_effect_score(metric: str, net_change: float, personal_std: float) -> float:

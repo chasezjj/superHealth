@@ -488,11 +488,9 @@ class AdvancedDailyReportGenerator:
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
 
     ap = argparse.ArgumentParser(description="生成高级健康日报（Phase 4）")
     ap.add_argument("--date", type=str, help="日期 (YYYY-MM-DD)，默认今天")

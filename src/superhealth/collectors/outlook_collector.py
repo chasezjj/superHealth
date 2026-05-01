@@ -20,11 +20,11 @@ from pathlib import Path
 from typing import Optional
 
 from superhealth import database as db
-from superhealth.config import load as load_config
+from superhealth.config import get_db_path, load as load_config
 
 log = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DEFAULT_DB_PATH = get_db_path()
 
 
 @dataclass

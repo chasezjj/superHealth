@@ -524,48 +524,47 @@ def main():
 
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
 
     if args.command == "list":
         if not SNAPSHOT_DIR.exists():
-            print("无快照")
+            log.info("无快照")
             return
         for f in sorted(SNAPSHOT_DIR.glob("*.json")):
             data = json.loads(f.read_text())
             n_prefs = len(data.get("learned_preferences", []))
             n_tracked = len(data.get("tracked_metrics", {}))
-            print(
-                f"  {f.name}  tag={data.get('tag')}  ts={data.get('timestamp')}  "
-                f"偏好={n_prefs}  追踪={n_tracked}天"
+            log.info(
+                "  %s  tag=%s  ts=%s  偏好=%d  追踪=%d天",
+                f.name, data.get("tag"), data.get("timestamp"), n_prefs, n_tracked,
             )
 
     elif args.command == "snapshot":
         path = take_snapshot(args.tag)
-        print(f"快照已保存: {path}")
+        log.info("快照已保存: %s", path)
 
     elif args.command == "diff":
         before_path = _latest_snapshot("before")
         after_path = _latest_snapshot("after")
         if not before_path:
-            print(
+            log.error(
                 "未找到 before 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot before"
             )
             return
         if not after_path:
-            print(
+            log.error(
                 "未找到 after 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot after"
             )
             return
-        print(f"对比: {before_path.name} vs {after_path.name}")
+        log.info("对比: %s vs %s", before_path.name, after_path.name)
         diff_result = compare_snapshots(before_path, after_path)
-        print(format_report(diff_result))
+        log.info(format_report(diff_result))
 
     elif args.command == "run":
         report = run_full(days=args.days)
-        print(report)
+        log.info(report)
 
     else:
         parser.print_help()

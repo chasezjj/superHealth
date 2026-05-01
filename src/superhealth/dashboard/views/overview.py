@@ -58,6 +58,8 @@ def render():
     avg_bb = avg_rhr = avg_hrv = avg_sleep = avg_stress = None
     base_bb = base_rhr = base_hrv = base_sleep = base_stress = None
     std_bb = std_rhr = std_hrv = std_sleep = std_stress = None
+    # 默认列名，确保在 df_7d 为空时 df_90d 块也能访问
+    bb_col = "bb_highest"
 
     if not df_7d.empty:
         bb_col = (

@@ -326,11 +326,15 @@ class GoalMetricRegistry:
 
         if direction == "stabilize":
             tolerance = abs(baseline) * 0.05
-            if abs(current - baseline) <= tolerance:
+            total_dev = abs(current - baseline)
+            if total_dev <= tolerance:
                 return 100.0
-            deviation = abs(current - baseline) - tolerance
             max_dev = abs(baseline) * 0.20
-            return max(0.0, (1 - deviation / max_dev) * 100)
+            if total_dev >= max_dev:
+                return 0.0
+            deviation = total_dev - tolerance
+            effective_max = max_dev - tolerance
+            return (1 - deviation / effective_max) * 100
 
         if direction == "decrease":
             total = baseline - target

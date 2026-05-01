@@ -1,25 +1,24 @@
-version: "3.8"
-
 services:
   superhealth:
     build: .
     image: superhealth:latest
     container_name: superhealth
     ports:
-      - "8501:8501"
+      - "8505:8505"
     volumes:
       # 数据库持久化
       - ./health.db:/app/health.db
       # 配置文件
-      - ~/.superhealth:/root/.superhealth:ro
+      - ~/.superhealth:/home/superhealth/.superhealth:ro
       # 活动数据目录
       - ./activity-data:/app/activity-data
     environment:
       - PYTHONPATH=src
       - TZ=Asia/Shanghai
+      - STREAMLIT_SERVER_PORT=8505
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8505/_stcore/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -32,7 +31,7 @@ services:
   #   container_name: superhealth-cron
   #   volumes:
   #     - ./health.db:/app/health.db
-  #     - ~/.superhealth:/root/.superhealth:ro
+  #     - ~/.superhealth:/home/superhealth/.superhealth:ro
   #     - ./activity-data:/app/activity-data
   #   environment:
   #     - PYTHONPATH=src

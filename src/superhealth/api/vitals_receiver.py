@@ -4,12 +4,12 @@
 接收 iPhone Health Auto Export 推送的血压/体重/体脂率数据，写入 SQLite。
 
 启动方式（开发/测试）：
-    cd healthy/
-    PYTHONPATH=src python -m superhealth.vitals_receiver
+    cd superhealth/
+    PYTHONPATH=src python -m superhealth.api.vitals_receiver
 
 生产环境（systemd + gunicorn）：
     pip install gunicorn
-    gunicorn -w 1 -b 0.0.0.0:5000 'superhealth.vitals_receiver:create_app()'
+    gunicorn -w 1 -b 0.0.0.0:5000 'superhealth.api.vitals_receiver:create_app()'
 
 Health Auto Export 配置：
     自动化类型: REST API
@@ -49,6 +49,7 @@ JSON v2 格式示例（Health Auto Export 推送内容）：
 
 from __future__ import annotations
 
+import hmac
 import logging
 import sqlite3
 from collections import defaultdict
@@ -351,7 +352,7 @@ def create_app(config=None) -> Flask:
             if bearer.startswith("Bearer "):
                 key = bearer[7:]
 
-        if key != cfg.vitals.api_token:
+        if not hmac.compare_digest(key, cfg.vitals.api_token):
             log.warning("鉴权失败，来源 IP: %s", request.remote_addr)
             return jsonify({"error": "Unauthorized"}), 401
 
@@ -363,8 +364,8 @@ def create_app(config=None) -> Flask:
         if not payload:
             return jsonify({"error": "Invalid JSON"}), 400
 
-        # 调试：打印完整 payload
-        log.info("收到原始 JSON: %s", payload)
+        # 调试：记录收到的指标类型（不记录具体数值，避免日志泄漏健康数据）
+        log.debug("收到原始 JSON: %s", payload)
 
         # 调试：记录收到的指标名称
         metrics_list = payload.get("data", {}).get("metrics", [])
@@ -381,26 +382,26 @@ def create_app(config=None) -> Flask:
         with db.get_conn(DB_PATH) as conn:
             for rec in records:
                 ts = rec["measured_at"]
-                # 幂等：同一时间戳已存在则跳过
-                exists = conn.execute(
-                    "SELECT 1 FROM vitals WHERE measured_at = ?", (ts,)
-                ).fetchone()
-                if exists:
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO vitals
+                        (measured_at, source, systolic, diastolic, weight_kg, body_fat_pct)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        ts,
+                        "health_auto_export",
+                        rec.get("systolic"),
+                        rec.get("diastolic"),
+                        rec.get("weight_kg"),
+                        rec.get("body_fat_pct"),
+                    ),
+                )
+                if cursor.rowcount == 0:
                     skipped += 1
-                    continue
-                db.insert_vital(
-                    conn,
-                    measured_at=ts,
-                    source="health_auto_export",
-                    systolic=rec.get("systolic"),
-                    diastolic=rec.get("diastolic"),
-                    weight_kg=rec.get("weight_kg"),
-                    body_fat_pct=rec.get("body_fat_pct"),
-                )
-                saved += 1
-                log.info(
-                    "保存体征记录: %s %s", ts, {k: v for k, v in rec.items() if k != "measured_at"}
-                )
+                else:
+                    saved += 1
+                    log.info(
+                        "保存体征记录: %s %s", ts, {k: v for k, v in rec.items() if k != "measured_at"}
+                    )
 
             # 同步写入 markdown 文件
             if saved > 0:
@@ -419,14 +420,13 @@ def create_app(config=None) -> Flask:
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     cfg = load_config()
     if not cfg.vitals.is_complete():
         log.warning(
-            "vitals.api_token 未配置！请在 ~/.healthy/config.toml 中添加:\n"
+            "vitals.api_token 未配置！请在 ~/.superhealth/config.toml 中添加:\n"
             "  [vitals]\n"
             '  api_token = "your-secret-token"'
         )

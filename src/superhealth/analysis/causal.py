@@ -542,10 +542,10 @@ class CausalInferenceAnalyzer:
                 interpretation="数据不足",
             )
 
-        # 按日期排序并构建设计矩阵
-        series = sorted(series, key=lambda s: s["date"])
-        dates = [s["date"] for s in series]
-        values = np.array([s["value"] for s in series if s["value"] is not None], dtype=float)
+        # 按日期排序并同步过滤 None 值，保证 dates 和 values 对齐
+        filtered = [(s["date"], s["value"]) for s in series if s["value"] is not None]
+        dates = [d for d, _ in filtered]
+        values = np.array([v for _, v in filtered], dtype=float)
 
         if len(values) < 14:
             return ITSAResult(
@@ -691,6 +691,8 @@ def generate_causal_report(days: int = 90) -> str:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     report = generate_causal_report(90)
     print(report)

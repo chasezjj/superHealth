@@ -15,8 +15,8 @@ from typing import Any, Callable, Optional
 
 log = logging.getLogger(__name__)
 
-_PKG_DIR = Path(__file__).parent.parent  # src/healthy/
-BASE_DIR = _PKG_DIR.parent.parent  # healthy/ (project root)
+_PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
+BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
 DATA_DIR = BASE_DIR / "activity-data"
 
 
@@ -444,11 +444,9 @@ def _bp_status(systolic: int, diastolic: int) -> str:
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", required=True, help="YYYY-MM-DD")

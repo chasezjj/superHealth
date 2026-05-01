@@ -19,7 +19,6 @@ import argparse
 import json
 import logging
 import re
-import sys
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -44,6 +43,10 @@ from superhealth.models import (
 log = logging.getLogger(__name__)
 
 
+class GarminAuthError(Exception):
+    """Raised when Garmin authentication fails or session is missing."""
+
+
 def _normalize_activity_name(name: str) -> str:
     """清洗 Garmin activityName：去除地域前缀，统一繁体字。"""
     name = re.sub(r"^.+?区\s*-\s*", "", name)
@@ -52,8 +55,8 @@ def _normalize_activity_name(name: str) -> str:
     return name
 
 
-_PKG_DIR = Path(__file__).parent.parent  # src/healthy/
-BASE_DIR = _PKG_DIR.parent.parent  # healthy/ (project root)
+_PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
+BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
 OUTPUT_DIR = BASE_DIR / "activity-data"
 SESSION_FILE = Path.home() / ".garmin_cn_session.json"
 _LEGACY_CONFIG_FILE = Path.home() / ".garmin_cn_config.json"  # 旧格式，向后兼容
@@ -74,7 +77,7 @@ def _login_via_playwright(email, password):
         from playwright.sync_api import sync_playwright
     except ImportError:
         log.error("需要安装 playwright: pip install playwright && playwright install chromium")
-        sys.exit(1)
+        raise GarminAuthError("需要安装 playwright")
 
     user_id = None
 
@@ -159,14 +162,14 @@ def _save_session(cookies, csrf_token, user_id):
         ],
     }
     SESSION_FILE.write_text(json.dumps(data, indent=2))
+    SESSION_FILE.chmod(0o600)
     log.info("Session 已保存到 %s", SESSION_FILE)
 
 
 def _load_session():
     """加载 session，返回 (requests.Session, user_id)。"""
     if not SESSION_FILE.exists():
-        log.error("未找到 session (%s)，请先运行: python fetch_garmin.py --login", SESSION_FILE)
-        sys.exit(1)
+        raise GarminAuthError(f"未找到 session ({SESSION_FILE})，请先运行: python -m superhealth.collectors.fetch_garmin --login")
 
     data = json.loads(SESSION_FILE.read_text())
     session = requests.Session()
@@ -210,7 +213,7 @@ def _api_get(session, path, params=None):
 
 
 def _save_config(email: str, password: str) -> None:
-    """保存账号密码到 ~/.healthy/config.toml。"""
+    """保存账号密码到 ~/.superhealth/config.toml。"""
     from superhealth.config import CONFIG_PATH, save_garmin
 
     save_garmin(email, password)
@@ -218,7 +221,7 @@ def _save_config(email: str, password: str) -> None:
 
 
 def _load_config() -> tuple[str | None, str | None]:
-    """从 ~/.healthy/config.toml 加载账号密码；向后兼容旧 JSON 文件。"""
+    """从 ~/.superhealth/config.toml 加载账号密码；向后兼容旧 JSON 文件。"""
     from superhealth.config import load as load_cfg
 
     conf = load_cfg()
@@ -235,8 +238,7 @@ def _auto_relogin():
     """Session 过期时自动重新登录。"""
     email, password = _load_config()
     if not email or not password:
-        log.error("Session 已过期，请重新登录: python fetch_garmin.py --login")
-        sys.exit(1)
+        raise GarminAuthError("Session 已过期且未保存凭据，请重新登录: python -m superhealth.collectors.fetch_garmin --login")
     log.info("Session 已过期，正在自动重新登录...")
     login_with_credentials(email, password)
     return _load_session()
@@ -722,11 +724,9 @@ def parse_date(s):
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
 
     parser = argparse.ArgumentParser(description="从 Garmin Connect 中国区拉取健康数据")
     parser.add_argument("--login", action="store_true", help="交互式登录并保存 session")

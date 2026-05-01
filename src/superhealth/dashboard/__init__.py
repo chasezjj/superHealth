@@ -1,1 +1,1 @@
-# healthy dashboard package
+# superhealth dashboard package

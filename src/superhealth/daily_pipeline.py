@@ -14,12 +14,13 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 from superhealth import database as db
 from superhealth.collectors import fetch_garmin as fg
 from superhealth.collectors import send_garmin_report
+from superhealth.collectors.fetch_garmin import GarminAuthError
 from superhealth.collectors.outlook_collector import fetch_calendar
+from superhealth.config import get_db_path
 from superhealth.feedback import auto_feedback
 from superhealth.feedback.effect_tracker import EffectTracker
 from superhealth.feedback.strategy_learner import StrategyLearner
@@ -30,7 +31,7 @@ from superhealth.reports.advanced_daily_report import AdvancedDailyReportGenerat
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 MAX_FETCH_RETRIES = 3
 
 
@@ -39,7 +40,7 @@ def _ensure_session():
     if not fg.SESSION_FILE.exists():
         email, password = fg._load_config()
         if not email or not password:
-            raise RuntimeError(
+            raise GarminAuthError(
                 "未找到 Garmin 配置，无法自动登录。请先运行: python -m superhealth.collectors.fetch_garmin --login"
             )
         log.info("未找到 session，正在自动登录...")
@@ -74,7 +75,6 @@ def fetch_and_log(target_date: str) -> bool:
                     log.error("记录 fetch 失败日志到数据库时出错: %s", db_err)
                 log.error("FETCH_FAILED %s after %d attempts", target_date, MAX_FETCH_RETRIES)
                 return False
-    return False
 
 
 def _log_step(target_date: str, step_name: str, success: bool, error_message: str | None = None):
@@ -134,7 +134,7 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
         log.info("TEST_MODE: 仅生成测试报告")
         generator = AdvancedDailyReportGenerator(db_path=DB_PATH)
         report = generator.generate_report(day, save=True, test_mode=True)
-        print(report)
+        log.info("测试报告:\n%s", report)
         return
 
     # 2. 拉取昨天
@@ -234,17 +234,23 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
 
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
+    def _valid_date(s: str):
+        try:
+            from datetime import datetime
+            datetime.strptime(s, "%Y-%m-%d")
+            return s
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"日期格式错误，应为 YYYY-MM-DD: {s}") from exc
+
     ap = argparse.ArgumentParser(description="每日健康数据流水线编排器")
     ap.add_argument(
         "--test-mode", action="store_true", help="测试模式：仅生成高级日报测试文件，不写DB"
     )
     ap.add_argument("--retry-days", type=int, default=7, help="检查历史失败的天数，默认7")
-    ap.add_argument("--date", type=str, help="指定业务日期 (YYYY-MM-DD)，默认今天")
+    ap.add_argument("--date", type=_valid_date, help="指定业务日期 (YYYY-MM-DD)，默认今天")
     args = ap.parse_args()
     run_pipeline(test_mode=args.test_mode, retry_days=args.retry_days, target_date=args.date)
 

@@ -20,9 +20,26 @@ from superhealth.config import (
     VitalsConfig,
     WeatherConfig,
     WechatConfig,
+    hash_password,
     load,
     save_config,
 )
+
+def _derive_dashboard_password(new_pwd: str, stored: str) -> str:
+    """根据用户输入决定最终存储的密码 hash。
+
+    - 输入为空 → 清空密码
+    - 输入与已存储的 hash 相同 → 保持原样（避免双 hash）
+    - 输入为新密码 → 计算 hash
+    """
+    if not new_pwd:
+        return ""
+    from superhealth.config import verify_password
+
+    if verify_password(new_pwd, stored):
+        return stored  # 输入的是原密码，保持原 hash
+    return hash_password(new_pwd)
+
 
 # ---------------------------------------------------------------------------
 # Crontab helpers
@@ -40,7 +57,7 @@ def _is_healthy_job(line: str) -> bool:
     stripped = line.strip()
     if not stripped or stripped.startswith("#"):
         return False
-    return "/root/healthy/" in stripped
+    return "superhealth" in stripped
 
 
 def _parse_cron_line(line: str) -> tuple[str, str, str, str, str, str] | None:
@@ -48,6 +65,15 @@ def _parse_cron_line(line: str) -> tuple[str, str, str, str, str, str] | None:
     if len(parts) < 6:
         return None
     return parts[0], parts[1], parts[2], parts[3], parts[4], " ".join(parts[5:])
+
+
+def _sanitize_cron_command(cmd: str) -> str | None:
+    """净化 crontab 命令，拒绝包含 shell 元字符的危险输入。"""
+    import shlex
+    bad_chars = {";", "|", "&", "<", ">", "`", "$", "\\", "(", ")", "{", "}", "[", "]"}
+    if any(ch in cmd for ch in bad_chars):
+        return None
+    return cmd
 
 
 def _save_crontab(content: str) -> None:
@@ -196,9 +222,10 @@ def render() -> None:
 
     # Dashboard
     with st.expander("仪表盘"):
+        # 不预填充已有密码（避免将 hash 误当作新密码重新 hash）
         dashboard_pwd = st.text_input(
             "访问密码（留空表示不设密码）",
-            value=config.dashboard.password,
+            value="",
             type="password",
             key="cfg_db_pwd",
         )
@@ -264,7 +291,7 @@ def render() -> None:
         new_dow = c5.text_input("周", value="*", key="new_cron_dow")
         new_cmd = st.text_input(
             "命令",
-            value="/root/healthy/scripts/run_garmin_daily.sh",
+            value="PYTHONPATH=src python -m superhealth.daily_pipeline",
             key="new_cron_cmd",
         )
         if st.button("添加此任务", key="btn_add_cron"):
@@ -323,7 +350,9 @@ def render() -> None:
                 latitude=weather_lat,
                 longitude=weather_lon,
             ),
-            dashboard=DashboardConfig(password=dashboard_pwd),
+            dashboard=DashboardConfig(
+                password=_derive_dashboard_password(dashboard_pwd, config.dashboard.password),
+            ),
             outlook=OutlookConfig(
                 username=outlook_user,
                 email=outlook_email,
@@ -343,14 +372,22 @@ def render() -> None:
         for line in crontab_lines:
             if _is_healthy_job(line):
                 if job_idx in edited_jobs_map:
-                    new_lines.append(edited_jobs_map[job_idx])
+                    sanitized = _sanitize_cron_command(edited_jobs_map[job_idx])
+                    if sanitized is None:
+                        st.error(f"定时任务包含危险字符，已跳过: {edited_jobs_map[job_idx]}")
+                        continue
+                    new_lines.append(sanitized)
                 job_idx += 1
             else:
                 new_lines.append(line)
 
         # append pending jobs
         for job in pending:
-            new_lines.append(job)
+            sanitized = _sanitize_cron_command(job)
+            if sanitized is None:
+                st.error(f"待添加任务包含危险字符，已跳过: {job}")
+                continue
+            new_lines.append(sanitized)
 
         _save_crontab("\n".join(new_lines) + "\n")
 

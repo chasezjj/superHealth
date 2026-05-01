@@ -2,8 +2,11 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/chasezjj/superhealth/actions/workflows/ci.yml/badge.svg)](https://github.com/chasezjj/superhealth/actions/workflows/ci.yml)
 
 个人健康数据管理系统，整合可穿戴设备、血压计、体脂秤等多源数据，实现自动化采集、长期趋势分析、因果推断和 LLM 驱动的个性化健康洞察。
+
+![Dashboard](superHealth.png)
 
 ## 特性
 
@@ -54,9 +57,22 @@ superhealth/
 ```bash
 git clone https://github.com/chasezjj/superhealth.git
 cd superhealth
-pip install -e ".[all]"
-playwright install chromium
+pip install -e ".[all]"        # 安装所有可选依赖
+playwright install chromium    # Garmin 数据采集需要
 ```
+
+<details>
+<summary>按需安装可选依赖</summary>
+
+```bash
+pip install -e "."               # 仅核心功能
+pip install -e ".[garmin]"       # + Garmin 数据采集
+pip install -e ".[claude]"       # + Claude AI 建议
+pip install -e ".[baichuan]"     # + 百川 AI 建议
+pip install -e ".[dev]"          # + 开发工具 (pytest, ruff, mypy)
+```
+
+</details>
 
 ### 配置
 
@@ -84,8 +100,15 @@ sqlite3 health.db < examples/sample_data.sql
 ### 启动 Web 仪表盘
 
 ```bash
-PYTHONPATH=src streamlit run src/superhealth/dashboard/app.py
-# 浏览器访问 http://localhost:8501
+PYTHONPATH=src streamlit run src/superhealth/dashboard/app.py --server.port=8505
+# 浏览器访问 http://localhost:8505
+```
+
+### Docker 部署
+
+```bash
+docker compose up -d
+# 浏览器访问 http://localhost:8505
 ```
 
 ## 常用命令
@@ -153,6 +176,29 @@ mypy src/ --ignore-missing-imports
 ## 贡献
 
 欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+## 常见问题
+
+<details>
+<summary>Garmin 登录失败怎么办？</summary>
+
+确保使用中国区 Garmin Connect 账号。运行 `python -m superhealth.collectors.fetch_garmin --login` 进行交互式登录。如果 Playwright 安装失败，尝试 `playwright install-deps chromium` 安装系统依赖。
+
+</details>
+
+<details>
+<summary>如何只使用部分功能？</summary>
+
+所有集成模块都是可选的。未配置的模块会静默跳过。例如，不配置 Garmin 凭据则跳过数据采集，不配置 Claude API 则跳过 LLM 建议。
+
+</details>
+
+<details>
+<summary>数据存在哪里？</summary>
+
+所有数据保存在本地 `health.db`（SQLite）中，不会上传到任何云服务。LLM API 调用会发送当日健康摘要以获取建议，但不发送历史原始数据。
+
+</details>
 
 ## 许可证
 

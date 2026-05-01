@@ -454,6 +454,8 @@ def generate_trend_report(days: int = 30) -> str:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     report = generate_trend_report(30)
     print(report)

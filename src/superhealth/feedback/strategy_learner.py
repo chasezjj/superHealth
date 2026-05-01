@@ -912,10 +912,9 @@ class StrategyLearner:
 def main():
     import argparse
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     ap = argparse.ArgumentParser(description="运行策略学习引擎")
     ap.add_argument("--days", type=int, default=180, help="分析最近 N 天的反馈（默认180）")
     args = ap.parse_args()
@@ -923,22 +922,23 @@ def main():
     learner = StrategyLearner()
     result = learner.run_full_analysis(days=args.days)
 
-    print("\n=== 策略学习报告 ===")
-    print(f"分析周期：{result['analyzed_days']} 天")
-    print(f"追踪运动次数：{result['tracked_exercises']}")
-    print(f"更新偏好数：{len(result['preference_updates'])}")
+    log.info("=== 策略学习报告 ===")
+    log.info("分析周期：%d 天", result['analyzed_days'])
+    log.info("追踪运动次数：%d", result['tracked_exercises'])
+    log.info("更新偏好数：%d", len(result['preference_updates']))
 
     if result["preference_updates"]:
-        print("\n新学习到的偏好：")
+        log.info("新学习到的偏好：")
         for k, v in result["preference_updates"].items():
-            print(f"  - {k}: {v}")
+            log.info("  - %s: %s", k, v)
 
     if result["preferences"]:
-        print("\n全部已学习偏好：")
+        log.info("全部已学习偏好：")
         for p in result["preferences"]:
-            print(
-                f"  [{p['preference_type']}] {p['preference_key']} = {p['preference_value']}"
-                f" (置信度: {p['confidence_score']:.2f}, 证据: {p['evidence_count']}条)"
+            log.info(
+                "  [%s] %s = %s (置信度: %.2f, 证据: %d条)",
+                p['preference_type'], p['preference_key'], p['preference_value'],
+                p['confidence_score'], p['evidence_count'],
             )
 
 

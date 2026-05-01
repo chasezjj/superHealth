@@ -1,6 +1,6 @@
--- healthy 项目 Schema
+-- SuperHealth 项目 Schema
 -- 运行方式（幂等，可反复执行）：
---   python -c "from healthy.database import init_db; init_db()"
+--   python -c "from superhealth.database import init_db; init_db()"
 -- 或直接：
 --   sqlite3 health.db < schema.sql
 --
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS exercises (
     max_hr           REAL,
     avg_speed        REAL,
     calories         REAL,
+    details          TEXT,            -- 力量训练动作明细
     FOREIGN KEY (date) REFERENCES daily_health(date)
 );
 CREATE INDEX IF NOT EXISTS idx_exercises_date ON exercises(date);
@@ -108,7 +109,7 @@ CREATE TABLE IF NOT EXISTS vitals (
     weight_kg    REAL,
     body_fat_pct REAL
 );
-CREATE INDEX IF NOT EXISTS idx_vitals_measured_at ON vitals(measured_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vitals_measured_at ON vitals(measured_at);
 
 -- 用药记录
 CREATE TABLE IF NOT EXISTS medications (

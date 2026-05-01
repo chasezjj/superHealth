@@ -6,7 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
-DB_PATH = Path(__file__).parent.parent.parent.parent.parent / "health.db"
+DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
 
 def render():

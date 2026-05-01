@@ -368,12 +368,14 @@ def _write_quality_score(conn, yesterday, rec_type, compliance, existing):
 def main():
     import argparse
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from superhealth.log_config import setup_logging
+
+    setup_logging()
     ap = argparse.ArgumentParser(description="自动填充昨日反馈数据")
     ap.add_argument("--date", type=str, help="目标日期 YYYY-MM-DD，默认昨天")
     args = ap.parse_args()
     ok = run(target_date=args.date)
-    print("已写入" if ok else "跳过（已存在或数据不足）")
+    log.info("已写入" if ok else "跳过（已存在或数据不足）")
 
 
 if __name__ == "__main__":

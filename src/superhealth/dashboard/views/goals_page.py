@@ -10,7 +10,7 @@ import streamlit as st
 
 from superhealth.goals.manager import GoalManager
 
-DB_PATH = Path(__file__).parent.parent.parent.parent.parent / "health.db"
+DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
 
 def _get_conn():
