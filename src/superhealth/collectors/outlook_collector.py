@@ -357,3 +357,24 @@ def fetch_calendar(date_str: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[C
         log.warning("日历缓存写入失败: %s", e)
 
     return _build_summary(date_str, events)
+
+
+def test_connection() -> tuple[bool, str]:
+    """测试 Exchange 连接。返回 (ok, message)。"""
+    cfg = load_config().outlook
+    if not cfg.is_complete():
+        return False, "Outlook 配置不完整，请填写用户名、邮箱和密码"
+
+    try:
+        from exchangelib import Account, Credentials
+    except ImportError:
+        return False, "缺少 exchangelib，请运行：pip install exchangelib"
+
+    try:
+        credentials = Credentials(cfg.username, cfg.password)
+        account = Account(cfg.email, credentials=credentials, autodiscover=True)
+        # 触发一次轻量访问以验证连接
+        _ = account.calendar.name
+        return True, f"Exchange 连接成功（邮箱: {cfg.email}）"
+    except Exception as e:
+        return False, f"Exchange 连接失败: {e}"

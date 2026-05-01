@@ -453,7 +453,7 @@ class AdvancedDailyReportGenerator:
         rhr = garmin.get("resting_hr")
         if rhr:
             data_parts.append(f"静息心率 {rhr:.0f}bpm")
-        bb = garmin.get("body_battery_wake")
+        bb = garmin.get("body_battery_highest") or garmin.get("body_battery_wake")
         if bb:
             data_parts.append(f"BB {bb:.0f}")
         if vitals_stats.latest_systolic and vitals_stats.latest_diastolic:

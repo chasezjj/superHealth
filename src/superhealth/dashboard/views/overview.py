@@ -6,7 +6,10 @@ from datetime import date
 
 import streamlit as st
 
+from pathlib import Path
+
 from superhealth.dashboard.data_loader import (
+    DEFAULT_DB_PATH,
     get_latest_ai_report,
     get_latest_daily_health,
     get_upcoming_appointments,
@@ -185,7 +188,60 @@ def render():
             )
 
     # ── AI 建议摘要 ───────────────────────────────────────────────────
-    st.subheader("AI 建议摘要")
+    if "generating_report" not in st.session_state:
+        st.session_state.generating_report = False
+    if "report_generate_error" not in st.session_state:
+        st.session_state.report_generate_error = ""
+    if "report_just_generated" not in st.session_state:
+        st.session_state.report_just_generated = False
+
+    report_dir = DEFAULT_DB_PATH.parent / "activity-data" / "reports"
+    today_str = date.today().isoformat()
+    today_report_file = report_dir / f"{today_str}-advanced-daily-report.md"
+    has_today_report = today_report_file.exists()
+
+    col_title, col_btn = st.columns([3, 1])
+    with col_title:
+        st.subheader("AI 建议摘要")
+    with col_btn:
+        btn_label = "重新生成高级健康日报" if has_today_report else "生成高级健康日报"
+        btn_help = "调用 LLM 分析今日健康数据并生成个性化建议" if not has_today_report else "重新调用 LLM 生成今日健康日报"
+
+        if st.session_state.generating_report:
+            st.button("⏳ 生成中...", disabled=True, key="generating_daily_report_btn")
+        else:
+            if st.button(btn_label, key="generate_daily_report_btn", help=btn_help):
+                st.session_state.generating_report = True
+                st.session_state.report_generate_error = ""
+                st.session_state.report_just_generated = False
+                st.rerun()
+
+    if st.session_state.generating_report:
+        with st.spinner("正在调用 LLM 分析今日健康数据，请稍候..."):
+            try:
+                from superhealth.reports.advanced_daily_report import AdvancedDailyReportGenerator
+
+                generator = AdvancedDailyReportGenerator(db_path=DEFAULT_DB_PATH)
+                report_text = generator.generate_report(today_str, save=True, test_mode=False)
+                st.session_state.generating_report = False
+                if "未找到 Garmin 数据" in report_text:
+                    st.session_state.report_generate_error = "今日暂无 Garmin 数据，无法生成日报。请先去系统配置同步 Garmin 数据。"
+                else:
+                    st.session_state.report_just_generated = True
+                st.rerun()
+            except Exception as e:
+                st.session_state.generating_report = False
+                st.session_state.report_generate_error = str(e)
+                st.rerun()
+
+    if st.session_state.report_just_generated:
+        st.success("高级健康日报生成成功！")
+        st.session_state.report_just_generated = False
+
+    if st.session_state.report_generate_error:
+        st.error(f"生成失败: {st.session_state.report_generate_error}")
+        st.session_state.report_generate_error = ""
+
     summary, full_report = get_latest_ai_report()
     if summary.startswith("（暂无"):
         st.info(summary)

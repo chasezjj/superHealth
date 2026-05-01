@@ -404,6 +404,28 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
     return weather_data
 
 
+def test_connection() -> tuple[bool, str]:
+    """测试和风天气 API 连通性。返回 (ok, message)。"""
+    cfg = load_config().weather
+    if not cfg.is_complete():
+        return False, "天气配置不完整，请填写 API Key 和 Location ID"
+
+    api_key = cfg.api_key
+    location_id = cfg.location_id
+    host = cfg.api_host.strip() if cfg.api_host else "devapi.qweather.com"
+    url = f"https://{host}/v7/weather/now?location={location_id}&key={api_key}"
+
+    resp = _fetch_json(url, timeout=10)
+    if not resp:
+        return False, "天气 API 请求失败，请检查网络或 API Host 配置"
+    if resp.get("code") != "200":
+        return False, f"天气 API 返回异常: code={resp.get('code')}, {resp.get('message', '未知错误')}"
+
+    now = resp.get("now", {})
+    city = now.get("text", "未知")
+    return True, f"天气 API 连接成功（当前天气: {city}）"
+
+
 def main():
     from superhealth.log_config import setup_logging
 

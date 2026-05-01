@@ -196,6 +196,34 @@ def _is_expired(r):
     )
 
 
+def test_connection() -> tuple[bool, str]:
+    """测试 Garmin session 是否有效，不触发重新登录。返回 (ok, message)。"""
+    try:
+        session, user_id = _load_session()
+    except GarminAuthError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f"加载 session 失败: {e}"
+
+    if not user_id:
+        return False, "Session 中未找到 user_id，请重新运行 --login"
+
+    today = date.today().isoformat()
+    url = f"{API_BASE}/usersummary-service/usersummary/daily/{user_id}"
+    try:
+        r = session.get(url, params={"calendarDate": today}, timeout=10)
+    except Exception as e:
+        return False, f"网络请求失败: {e}"
+
+    if _is_expired(r):
+        return False, "Session 已过期，请重新登录（命令行运行 --login）"
+
+    if r.status_code == 200:
+        return True, f"连接成功 (user_id: {user_id})"
+
+    return False, f"API 返回异常状态码: {r.status_code}"
+
+
 def _api_get(session, path, params=None):
     """调用 Garmin Connect CN API，session 过期时自动重新登录。"""
     url = f"{API_BASE}/{path.lstrip('/')}"
