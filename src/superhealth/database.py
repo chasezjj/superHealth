@@ -345,13 +345,13 @@ def insert_lab_result(
     date: str,
     source: str,
     item_name: str,
-    item_code: str = None,
-    value: float = None,
-    unit: str = None,
-    ref_low: float = None,
-    ref_high: float = None,
+    item_code: str | None = None,
+    value: float | None = None,
+    unit: str | None = None,
+    ref_low: float | None = None,
+    ref_high: float | None = None,
     is_abnormal: int = 0,
-    note: str = None,
+    note: str | None = None,
 ):
     conn.execute(
         """
@@ -549,13 +549,13 @@ def upsert_weather(
     conn: sqlite3.Connection,
     *,
     date: str,
-    condition: str = None,
-    temperature: float = None,
-    temp_max: float = None,
-    temp_min: float = None,
-    wind_scale: int = None,
-    aqi: float = None,
-    outdoor_ok: int = None,
+    condition: str | None = None,
+    temperature: float | None = None,
+    temp_max: float | None = None,
+    temp_min: float | None = None,
+    wind_scale: int | None = None,
+    aqi: float | None = None,
+    outdoor_ok: int | None = None,
 ):
     """写入或更新一天的天气数据（以 date 为唯一键）。"""
     conn.execute(

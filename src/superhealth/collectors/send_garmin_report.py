@@ -5,12 +5,15 @@
 """
 
 import argparse
+import logging
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 from superhealth import config as cfg
+
+log = logging.getLogger(__name__)
 
 _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)

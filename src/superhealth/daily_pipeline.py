@@ -75,6 +75,7 @@ def fetch_and_log(target_date: str) -> bool:
                     log.error("记录 fetch 失败日志到数据库时出错: %s", db_err)
                 log.error("FETCH_FAILED %s after %d attempts", target_date, MAX_FETCH_RETRIES)
                 return False
+    return False
 
 
 def _log_step(target_date: str, step_name: str, success: bool, error_message: str | None = None):
