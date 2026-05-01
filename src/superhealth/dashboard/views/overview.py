@@ -6,8 +6,6 @@ from datetime import date
 
 import streamlit as st
 
-from pathlib import Path
-
 from superhealth.dashboard.data_loader import (
     DEFAULT_DB_PATH,
     get_latest_ai_report,

@@ -226,13 +226,13 @@ def render() -> None:
             if sync_start > sync_end:
                 st.error("日期范围无效")
             else:
+                from superhealth import database as db
                 from superhealth.collectors.fetch_garmin import (
                     BASE_DIR,
                     GarminAuthError,
                     _load_session,
                     save_day,
                 )
-                from superhealth import database as db
 
                 try:
                     _session, _user_id = _load_session()
