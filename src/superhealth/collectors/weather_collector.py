@@ -39,7 +39,8 @@ _SSL_CTX = ssl.create_default_context()
 # 保留系统默认 SSL 验证，不全局禁用证书检查
 
 from superhealth import database as db
-from superhealth.config import get_db_path, load as load_config
+from superhealth.config import get_db_path
+from superhealth.config import load as load_config
 
 log = logging.getLogger(__name__)
 

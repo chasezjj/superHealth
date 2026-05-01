@@ -25,6 +25,7 @@ from superhealth.config import (
     save_config,
 )
 
+
 def _derive_dashboard_password(new_pwd: str, stored: str) -> str:
     """根据用户输入决定最终存储的密码 hash。
 
@@ -69,7 +70,6 @@ def _parse_cron_line(line: str) -> tuple[str, str, str, str, str, str] | None:
 
 def _sanitize_cron_command(cmd: str) -> str | None:
     """净化 crontab 命令，拒绝包含 shell 元字符的危险输入。"""
-    import shlex
     bad_chars = {";", "|", "&", "<", ">", "`", "$", "\\", "(", ")", "{", "}", "[", "]"}
     if any(ch in cmd for ch in bad_chars):
         return None

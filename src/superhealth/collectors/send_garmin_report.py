@@ -65,7 +65,6 @@ def send_advanced_report(
 ) -> int:
     """发送 Phase 4 高级健康日报（含 LLM 建议和多模型评估）。"""
     text = path.read_text(encoding="utf-8")
-    log.debug("Reading file: %s, first line: %s", path, text.split("\n")[0])
 
     # 用 openclaw message send 直接发送，绕过 agent 记忆系统
     cmd = [

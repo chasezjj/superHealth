@@ -20,7 +20,8 @@ from pathlib import Path
 from typing import Optional
 
 from superhealth import database as db
-from superhealth.config import get_db_path, load as load_config
+from superhealth.config import get_db_path
+from superhealth.config import load as load_config
 
 log = logging.getLogger(__name__)
 
