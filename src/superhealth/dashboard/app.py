@@ -1,7 +1,7 @@
 """Streamlit 仪表盘入口。
 
 启动方式：
-    cd superhealth
+    cd superHealth
     PYTHONPATH=src streamlit run src/superhealth/dashboard/app.py --server.port=8505
 """
 

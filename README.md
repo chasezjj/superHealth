@@ -55,9 +55,9 @@ superhealth/
 ### 安装
 
 ```bash
-git clone https://github.com/chasezjj/superhealth.git
-cd superhealth
-pip install -e ".[all]"        # 安装所有可选依赖
+git clone https://github.com/chasezjj/superHealth.git
+cd superHealth
+pip install -e ".[all,dev]"    # 安装所有可选依赖（含测试工具）
 playwright install chromium    # Garmin 数据采集需要
 ```
 
@@ -69,7 +69,7 @@ pip install -e "."               # 仅核心功能
 pip install -e ".[garmin]"       # + Garmin 数据采集
 pip install -e ".[claude]"       # + Claude AI 建议
 pip install -e ".[baichuan]"     # + 百川 AI 建议
-pip install -e ".[dev]"          # + 开发工具 (pytest, ruff, mypy)
+pip install -e ".[dev]"          # + 开发工具 (pytest, ruff, mypy)；运行 pytest 必须安装此项
 ```
 
 </details>
@@ -89,6 +89,9 @@ chmod 600 ~/.superhealth/config.toml
 
 ```bash
 python -c "from superhealth.database import init_db; init_db()"
+# 数据库文件默认创建在项目根目录 health.db
+# 可通过 SUPERHEALTH_DB 环境变量自定义路径，例如：
+# export SUPERHEALTH_DB=~/.superhealth/health.db
 ```
 
 ### 导入示例数据（可选）
