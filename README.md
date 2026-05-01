@@ -4,7 +4,14 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/chasezjj/superhealth/actions/workflows/ci.yml/badge.svg)](https://github.com/chasezjj/superhealth/actions/workflows/ci.yml)
 
-个人健康数据管理系统，整合可穿戴设备、血压计、体脂秤等多源数据，实现自动化采集、长期趋势分析、因果推断和 LLM 驱动的个性化健康洞察。
+**AutoResearch × 个人智能健康管理系统**
+
+大多数健康 App 只记录数据，却不真正了解你。SuperHealth 做的是另一件事：**深度学习你这个人**——读懂你的基因报告、体检报告和每一次门诊记录，再结合你每天的睡眠、压力、运动和饮食，由 AI 为你量身制定最佳的运动与生活方式。
+
+不是千人一面的通用建议，是只属于你的健康策略。
+
+> **真实验证** · 作者深度使用 2 个月。P1 目标：降低舒张压。  
+> 按照系统给出的运动建议，**一周内舒张压从 81.4 mmHg 降至 74.9 mmHg**（↓ 7.9%）。
 
 ![Dashboard](superHealth.png)
 
