@@ -1,0 +1,47 @@
+# 个人健康数据（绝不可入库）
+medical-records/
+checkup-reports/
+genetic-data/
+vitals/
+activity-data/**/*.md
+activity-data/**/*.json
+activity-data/archive/*
+!activity-data/.gitkeep
+!activity-data/reports/.gitkeep
+!activity-data/archive/.gitkeep
+*.db
+*.db-shm
+*.db-wal
+
+# 配置与凭据
+.env
+*.local
+config.toml
+config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志与临时文件
+*.log
+data/
+versions.txt
+node_modules/
+.DS_Store
+
+# Claude Code
+.claude/

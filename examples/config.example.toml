@@ -1,0 +1,49 @@
+# SuperHealth 配置文件示例
+# 复制到 ~/.superhealth/config.toml 并根据实际情况填写
+# 权限建议：chmod 600 ~/.superhealth/config.toml
+
+[garmin]
+email    = "your_email@example.com"
+password = "your_password"
+
+[wechat]
+account_id = "your-bot-account-id"
+channel    = "your-channel"
+target     = "your-wechat-openid"
+
+[vitals]
+api_token = "your-secret-token"   # Health Auto Export 鉴权 token
+host      = "0.0.0.0"             # 监听地址（默认全部接口）
+port      = 5000                  # 监听端口
+
+[claude]
+api_key = "sk-ant-api03-..."      # Anthropic API Key（高级日报需要）
+model   = "claude-sonnet-4-6"
+max_tokens = 1024
+base_url = ""                     # 自定义 endpoint（留空则用官方地址）
+
+[baichuan]
+api_key  = "your-baichuan-key"    # 可选：百川医疗大模型
+model    = "Baichuan-M3-Plus"
+max_tokens = 1024
+base_url = "https://api.baichuan-ai.com/v1"
+
+[advisor]
+mode = "claude_only"              # claude_only | baichuan_only | both
+
+[weather]
+api_key     = "your_qweather_key" # 可选：天气+户外适宜度
+city        = "YourCity"
+location_id = "YOUR_LOCATION_ID"  # QWeather 城市ID
+api_host    = ""                  # 私有 API host（付费账号专属域名）
+latitude    = 39.92
+longitude   = 116.41
+
+[dashboard]
+password = ""                     # 可选：仪表盘访问密码
+
+[outlook]
+username = ""
+email    = ""
+password = ""
+timezone = "Asia/Shanghai"
