@@ -97,6 +97,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH):
                 if "duplicate column name" in str(e).lower():
                     continue
                 raise
+    print(f"数据库已初始化：{db_path}")
 
 
 # ─── DailyHealth CRUD ────────────────────────────────────────────────

@@ -63,20 +63,20 @@ superhealth/
 
 ```bash
 git clone https://github.com/chasezjj/superHealth.git
-cd superHealth
-pip install -e ".[all,dev]"    # 安装所有可选依赖（含测试工具）
-playwright install chromium    # Garmin 数据采集需要
+cd superhealth
+pip3 install -e ".[all,dev]"   # 安装所有可选依赖（含测试工具）
+playwright install chromium    # 仅 Garmin 数据采集需要，不用 Garmin 可跳过
 ```
 
 <details>
 <summary>按需安装可选依赖</summary>
 
 ```bash
-pip install -e "."               # 仅核心功能
-pip install -e ".[garmin]"       # + Garmin 数据采集
-pip install -e ".[claude]"       # + Claude AI 建议
-pip install -e ".[baichuan]"     # + 百川 AI 建议
-pip install -e ".[dev]"          # + 开发工具 (pytest, ruff, mypy)；运行 pytest 必须安装此项
+pip3 install -e "."               # 仅核心功能
+pip3 install -e ".[garmin]"       # + Garmin 数据采集
+pip3 install -e ".[claude]"       # + Claude AI 建议
+pip3 install -e ".[baichuan]"     # + 百川 AI 建议
+pip3 install -e ".[dev]"          # + 开发工具 (pytest, ruff, mypy)；运行 pytest 必须安装此项
 ```
 
 </details>
@@ -177,7 +177,7 @@ collectors/send_garmin_report.py → 微信/邮件日报（可选）
 ## 开发
 
 ```bash
-pip install -e ".[dev]"
+pip3 install -e ".[dev]"
 pytest
 ruff check src/
 mypy src/ --ignore-missing-imports
