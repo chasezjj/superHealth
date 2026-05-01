@@ -126,7 +126,7 @@ class LLMInsightsGenerator:
             log.debug("因果发现分析失败: %s", e)
             return "因果发现分析暂不可用"
 
-    def generate_weekly_report(self, end_date: str = None, save: bool = True) -> str:
+    def generate_weekly_report(self, end_date: str | None = None, save: bool = True) -> str:
         """生成周报。"""
         if end_date is None:
             end_date = date.today().isoformat()

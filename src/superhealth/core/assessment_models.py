@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from superhealth.core.health_profile_builder import HealthProfile
@@ -20,20 +20,20 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _zscore(value: Optional[float], mean: Optional[float], std: Optional[float]) -> Optional[float]:
+def _zscore(value: Any, mean: Any, std: Any) -> Optional[float]:
     """计算 z-score（偏离个人基线的标准差数）。数据不足时返回 None。"""
     if value is None or mean is None or not std:
         return None
-    return (value - mean) / std
+    return (float(value) - float(mean)) / float(std)
 
 
 def _calc_steps_ratio(
-    steps_7d: Optional[float], steps_90d: Optional[float], details: list[str]
+    steps_7d: Any, steps_90d: Any, details: list[str]
 ) -> Optional[float]:
     """计算步数 ratio（7天 vs 90天基线，上限10000）。数据不足时返回 None，并自动追加 details。"""
     if steps_7d is not None and steps_90d is not None:
-        effective_baseline = min(steps_90d, 10_000)
-        ratio = steps_7d / effective_baseline
+        effective_baseline = min(float(steps_90d), 10_000)
+        ratio = float(steps_7d) / effective_baseline
         details.append(f"近7天均值步数 {steps_7d:,}（90天基线 {steps_90d:,}）")
         return ratio
     if steps_7d is not None:

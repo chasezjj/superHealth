@@ -427,7 +427,7 @@ def load_merged_for_correlation(days: int = 180) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=0)
-def load_learned_preferences(preference_type: str = None, status: str = None) -> pd.DataFrame:
+def load_learned_preferences(preference_type: str | None = None, status: str | None = None) -> pd.DataFrame:
     """加载已学习的个人偏好。
 
     Args:

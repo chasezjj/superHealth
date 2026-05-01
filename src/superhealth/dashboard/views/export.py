@@ -18,7 +18,7 @@ from superhealth.dashboard.data_loader import (
 
 def _fig_to_png_bytes(fig) -> bytes:
     """Plotly 图转 PNG bytes（需要 kaleido）。"""
-    return fig.to_image(format="png", width=800, height=300)
+    return fig.to_image(format="png", width=800, height=300)  # type: ignore[no-any-return]
 
 
 def _build_pdf(

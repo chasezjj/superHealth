@@ -193,13 +193,13 @@ def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
             # 自动解压 gzip（响应头 Content-Encoding: gzip 或魔数 1f 8b）
             if raw[:2] == b"\x1f\x8b":
                 raw = gzip.decompress(raw)
-            return _json.loads(raw.decode("utf-8"))
+            return _json.loads(raw.decode("utf-8"))  # type: ignore[no-any-return]
     except (URLError, _json.JSONDecodeError, Exception) as e:
         log.warning("天气 API 请求失败: %s — %s", url.split("?")[0], e)
         return None
 
 
-def fetch_weather(target_date: str = None, db_path: Path = DB_PATH) -> Optional[WeatherData]:
+def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Optional[WeatherData]:
     """采集天气数据并写入 DB，返回 WeatherData 或 None（API 不可用时）。
 
     target_date: YYYY-MM-DD，默认今天。

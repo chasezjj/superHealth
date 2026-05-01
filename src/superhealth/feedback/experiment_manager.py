@@ -381,7 +381,7 @@ class ExperimentManager:
             if row:
                 cached = json.loads(row["preference_value"])
                 if cached and len(cached) > 0:
-                    return cached
+                    return cached  # type: ignore[no-any-return]
         except Exception:
             pass
         return None
@@ -521,7 +521,7 @@ class ExperimentManager:
         if "```" in raw:
             m = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
             if m:
-                return json.loads(m.group(1).strip())
+                return json.loads(m.group(1).strip())  # type: ignore[no-any-return]
 
         start = raw.find("[")
         if start != -1:
@@ -532,9 +532,9 @@ class ExperimentManager:
                 elif ch == "]":
                     depth -= 1
                     if depth == 0:
-                        return json.loads(raw[start : i + 1])
+                        return json.loads(raw[start : i + 1])  # type: ignore[no-any-return]
 
-        return json.loads(raw) if raw.startswith("[") else []
+        return json.loads(raw) if raw.startswith("[") else []  # type: ignore[no-any-return]
 
     # ── CRUD + 生命周期 ───────────────────────────────────────────────
 
@@ -576,7 +576,7 @@ class ExperimentManager:
             )
             exp_id = cursor.lastrowid
         log.info("EXPERIMENT_DRAFT id=%d name=%s", exp_id, name)
-        return exp_id
+        return exp_id  # type: ignore[no-any-return]
 
     def activate(self, experiment_id: int) -> None:
         """草稿 → 激活：设定日期、写 active_experiment preference。"""
@@ -816,7 +816,7 @@ class ExperimentManager:
         }
 
     def _direction_matches(
-        self, expected_direction: str, diff: float, baseline: float = None
+        self, expected_direction: str, diff: float, baseline: float | None = None
     ) -> bool:
         if expected_direction == "increase":
             return diff > 0

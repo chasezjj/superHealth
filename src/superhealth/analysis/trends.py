@@ -413,7 +413,7 @@ def generate_trend_report(days: int = 30) -> str:
                 f"- 个人基线: {round(result.baseline_mean, 1) if result.baseline_mean else 'N/A'} ± {round(result.baseline_std, 1) if result.baseline_std else 'N/A'}"
             )
 
-            if result.is_anomaly:
+            if result.is_anomaly and result.z_score is not None:
                 direction = "偏高" if result.z_score > 0 else "偏低"
                 lines.append(
                     f"- ⚠️ **异常**: 当前值{direction}（偏离基线 {abs(result.z_score):.1f} 个标准差）"

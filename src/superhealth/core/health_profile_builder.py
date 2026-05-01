@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean, pstdev
-from typing import Optional
+from typing import Any, Optional
 
 from superhealth import database as db
 from superhealth.analysis.trends import TrendAnalyzer
@@ -57,7 +57,7 @@ class HealthProfile:
     # 风险因素（从趋势/指标发现）
     risk_factors: list[str] = field(default_factory=list)
     # 近期趋势摘要
-    trends: dict[str, str] = field(default_factory=dict)
+    trends: dict[str, Any] = field(default_factory=dict)
     # 运动禁忌（自动推导）
     exercise_contraindications: list[str] = field(default_factory=list)
     # 运动优先目标（自动推导）
@@ -95,7 +95,7 @@ class HealthProfileBuilder:
     def _get_conn(self):
         return db.get_conn(self.db_path)
 
-    def build(self, reference_date: str = None) -> HealthProfile:
+    def build(self, reference_date: str | None = None) -> HealthProfile:
         """构建健康画像。reference_date: YYYY-MM-DD，默认今天。"""
         if reference_date is None:
             reference_date = date.today().isoformat()
@@ -223,7 +223,7 @@ class HealthProfileBuilder:
 
                 ldl_latest = profile.trends.get("ldl_latest")
                 ldl_date = profile.trends.get("ldl_date", "")
-                if ldl_latest and ldl_latest > 3.4:
+                if ldl_latest and float(ldl_latest) > 3.4:
                     profile.risk_factors.append("ldl_borderline")
                     profile.add_source(
                         "当前关注",

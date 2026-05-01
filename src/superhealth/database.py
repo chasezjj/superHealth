@@ -12,7 +12,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from superhealth.models import DailyHealth
 
@@ -671,11 +671,11 @@ def insert_recommendation_feedback(
     *,
     date: str,
     report_id: str,
-    recommendation_type: str = None,
-    recommendation_content: str = None,
-    compliance: int = None,
-    actual_action: str = None,
-    tracked_metrics: str = None,
+    recommendation_type: str | None = None,
+    recommendation_content: str | None = None,
+    compliance: int | None = None,
+    actual_action: str | None = None,
+    tracked_metrics: str | None = None,
 ):
     """写入一条建议执行反馈。tracked_metrics 为 JSON 字符串。
 
@@ -705,9 +705,9 @@ def update_recommendation_feedback(
     conn: sqlite3.Connection,
     *,
     date: str,
-    recommendation_type: str = None,
+    recommendation_type: str | None = None,
     compliance: int,
-    actual_action: str = None,
+    actual_action: str | None = None,
 ) -> bool:
     """更新已有反馈记录的 compliance / actual_action。
 
@@ -785,7 +785,7 @@ def update_recommendation_quality_score(
 
 
 def query_feedback_by_date_range(
-    conn: sqlite3.Connection, start: str, end: str, recommendation_type: str = None
+    conn: sqlite3.Connection, start: str, end: str, recommendation_type: str | None = None
 ) -> list[dict]:
     """查询日期范围内的反馈记录，可按类型过滤。"""
     if recommendation_type:
@@ -817,7 +817,7 @@ def upsert_learned_preference(
     preference_value: str,
     confidence_score: float = 0.5,
     evidence_count: int = 1,
-    goal_id: int = None,
+    goal_id: int | None = None,
     status: str = "active",
 ):
     """写入或更新一条学习到的偏好（以 type+key 为唯一键）。"""
@@ -849,7 +849,7 @@ def upsert_learned_preference(
 
 
 def query_learned_preferences(
-    conn: sqlite3.Connection, preference_type: str = None, exclude_status: str = None
+    conn: sqlite3.Connection, preference_type: str | None = None, exclude_status: str | None = None
 ) -> list[dict]:
     """查询学习偏好，可按 preference_type 和 exclude_status 过滤。
 
@@ -898,8 +898,8 @@ def query_avg_quality_for_preference(
              AND date >= ?""",
         (since,),
     ).fetchone()
-    if row and row["n"] >= 3:
-        return round(row["avg_q"], 4)
+    if row and row["n"] >= 3:  # type: ignore[index]
+        return round(float(row["avg_q"]), 4)  # type: ignore[index]
     return None
 
 
@@ -1025,10 +1025,10 @@ def insert_goal_progress(
     *,
     goal_id: int,
     date: str,
-    current_value: float = None,
-    delta_from_baseline: float = None,
-    progress_pct: float = None,
-    note: str = None,
+    current_value: float | None = None,
+    delta_from_baseline: float | None = None,
+    progress_pct: float | None = None,
+    note: str | None = None,
 ):
     """写入一条目标每日进度快照（INSERT OR REPLACE）。"""
     conn.execute(
@@ -1063,7 +1063,7 @@ def query_goal_progress_range(
 # ─── 肝肾指标统一趋势查询（合并 lab_results + annual_checkups）──────────────────
 
 # 指标映射配置：lab_results 查询条件 → annual_checkups 列名
-_LIVER_KIDNEY_METRICS = {
+_LIVER_KIDNEY_METRICS: dict[str, dict[str, Any]] = {
     "uric_acid": {
         "lab_item_names": ["尿酸", "血尿酸", "UA"],
         "checkup_column": "uric_acid",
@@ -1154,8 +1154,8 @@ _LIVER_KIDNEY_METRICS = {
 def query_lab_trends_unified(
     conn: sqlite3.Connection,
     metric_key: str,
-    start_date: str = None,
-    end_date: str = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[dict]:
     """统一查询肝肾/血脂指标时间序列（合并 lab_results + annual_checkups）。
 
@@ -1280,8 +1280,8 @@ def query_lab_trends_unified(
 def query_multiple_metrics(
     conn: sqlite3.Connection,
     metric_keys: list[str],
-    start_date: str = None,
-    end_date: str = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, list[dict]]:
     """批量查询多个指标的趋势数据。
 
@@ -1315,7 +1315,7 @@ def insert_sync_log(
         """,
         (date, source, step, status, error_message),
     )
-    return cursor.lastrowid
+    return cursor.lastrowid or 0
 
 
 def query_failed_sync_dates(

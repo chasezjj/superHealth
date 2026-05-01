@@ -102,7 +102,7 @@ class EffectTracker:
     def _get_daily_metrics(self, day_str: str, cache: dict | None = None) -> Optional[dict]:
         """获取某天的核心指标，优先从内存缓存读取。"""
         if cache is not None and day_str in cache:
-            return cache[day_str]
+            return cache[day_str]  # type: ignore[no-any-return]
         with self._get_conn() as conn:
             row = conn.execute(
                 """SELECT date,
@@ -255,7 +255,7 @@ class EffectTracker:
         # 统一返回 dict，避免调用方收到 sqlite3.Row
         if hasattr(winner, "keys"):  # sqlite3.Row 有 .keys() 方法
             return dict(winner)
-        return winner
+        return winner  # type: ignore[no-any-return]
 
     @staticmethod
     def _metric_effect_score(metric: str, net_change: float, personal_std: float) -> float:
@@ -336,7 +336,7 @@ class EffectTracker:
             weight_sum += w
         if weight_sum == 0:
             return float("inf")
-        score = (total / weight_sum) ** 0.5
+        score: float = float((total / weight_sum) ** 0.5)
 
         # 星期几相同优先（约15%优惠）
         t_date = target.get("date")
@@ -870,10 +870,10 @@ class EffectTracker:
                     p = metrics.get(m)
                     if b is not None and p is not None:
                         raw = p - b
-                        ctrl = control_avg_changes.get(m, 0.0) if net_effect_available else 0.0
-                        net = raw - ctrl
+                        ctrl_val = control_avg_changes.get(m, 0.0) if net_effect_available else 0.0
+                        net = raw - ctrl_val
                         parts.append(
-                            f"{self._METRIC_LABELS[m]} raw={raw:+.1f}/ctrl={ctrl:+.1f}/net={net:+.1f}"
+                            f"{self._METRIC_LABELS[m]} raw={raw:+.1f}/ctrl={ctrl_val:+.1f}/net={net:+.1f}"
                         )
                 if parts:
                     details_by_day[day_key].append(
@@ -884,7 +884,7 @@ class EffectTracker:
         details = [d for dk in sorted(details_by_day.keys()) for d in details_by_day[dk]]
 
         # 计算复合恢复评分 (CRS)，contaminated 日不参与
-        composite_scores = {}
+        composite_scores: dict[str, float | None] = {}
         for day_key, metrics in post_data.items():
             if day_key in contaminated:
                 composite_scores[day_key] = None
@@ -1004,8 +1004,8 @@ class EffectTracker:
     def write_effects_to_db(
         self,
         results: list[dict],
-        only_date: str = None,
-        run_date: str = None,
+        only_date: str | None = None,
+        run_date: str | None = None,
         lock_days: int = 3,
     ):
         """批量将追踪结果写回 recommendation_feedback.tracked_metrics。
@@ -1135,10 +1135,10 @@ class EffectTracker:
             return None
 
         # 优先使用 P1（最高优先级）目标
-        pcts = [r["progress_pct"] for r in rows if r["progress_pct"] is not None]
+        pcts = [r["progress_pct"] for r in rows if r["progress_pct"] is not None]  # type: ignore[index]
         if not pcts:
             return None
 
         # 取优先级最高的目标的 progress_pct，限制在 [0, 100] 再归一化
-        raw = max(0.0, min(100.0, pcts[0]))
+        raw: float = max(0.0, min(100.0, float(pcts[0])))
         return raw / 100.0

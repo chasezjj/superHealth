@@ -17,7 +17,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from superhealth.core.assessment_models import AssessmentResult
@@ -81,7 +81,7 @@ class BaseHealthAdvisor(ABC):
         self,
         guide_keys: list[str],
         profile: "HealthProfile",
-        assessment_results: list["AssessmentResult"] = None,
+        assessment_results: list["AssessmentResult"] | None = None,
     ) -> str:
         """动态构建 System Prompt。"""
         parts = []
@@ -200,8 +200,8 @@ class BaseHealthAdvisor(ABC):
             priority_labels = {1: "P1 主要", 2: "P2 次要", 3: "P3 辅助"}
             direction_labels = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
             for g in profile.active_goals:
-                p_label = priority_labels.get(g.get("priority"), f"P{g.get('priority')}")
-                d_label = direction_labels.get(g.get("direction"), g.get("direction"))
+                p_label = priority_labels.get(g.get("priority"), f"P{g.get('priority')}")  # type: ignore[arg-type]
+                d_label = direction_labels.get(g.get("direction"), g.get("direction"))  # type: ignore[arg-type]
                 metric_label = g.get("metric_label", g.get("metric_key"))
                 line = f"- **{p_label}**：{g['name']}（{metric_label}，方向：{d_label}"
                 if g.get("baseline_value") is not None:
@@ -250,11 +250,11 @@ class BaseHealthAdvisor(ABC):
         self,
         daily_data: dict,
         reference_date: str,
-        weather_data: dict = None,
-        recent_exercises: list = None,
-        recent_feedback: list = None,
-        is_weekday: bool = None,
-        calendar_summary: dict = None,
+        weather_data: dict | None = None,
+        recent_exercises: list | None = None,
+        recent_feedback: list | None = None,
+        is_weekday: bool | None = None,
+        calendar_summary: dict | None = None,
     ) -> str:
         """构建用户 prompt（当日数据摘要 + 近7天运动历史 + 近期反馈 + 天气 + 建议请求）。"""
         from datetime import datetime
@@ -441,12 +441,12 @@ class BaseHealthAdvisor(ABC):
         daily_data: dict,
         profile: "HealthProfile",
         guide_keys: list[str],
-        assessment_results: list["AssessmentResult"] = None,
-        reference_date: str = None,
-        weather_data: dict = None,
-        recent_exercises: list = None,
-        recent_feedback: list = None,
-        calendar_summary: dict = None,
+        assessment_results: list["AssessmentResult"] | None = None,
+        reference_date: str | None = None,
+        weather_data: dict | None = None,
+        recent_exercises: list | None = None,
+        recent_feedback: list | None = None,
+        calendar_summary: dict | None = None,
     ) -> dict:
         """调用 LLM API 生成个性化建议，返回解析后的 JSON dict。"""
         if reference_date is None:
@@ -471,7 +471,7 @@ class BaseHealthAdvisor(ABC):
         )
 
         max_retries = 3
-        last_error = None
+        last_error: Exception | None = None
         for attempt in range(1, max_retries + 1):
             try:
                 raw = self._call_api(system_prompt, user_prompt)
@@ -507,8 +507,8 @@ class BaseHealthAdvisor(ABC):
         self,
         daily_data: dict,
         profile: "HealthProfile",
-        weather_data: dict = None,
-        is_weekday: bool = None,
+        weather_data: dict | None = None,
+        is_weekday: bool | None = None,
     ) -> dict:
         """API 不可用时的规则降级建议。"""
         from datetime import date
@@ -598,7 +598,7 @@ class BaseHealthAdvisor(ABC):
         }
 
     @staticmethod
-    def _extract_json(raw: str) -> dict:
+    def _extract_json(raw: str) -> dict[str, Any]:
         """从 LLM 返回文本中提取 JSON，兼容 ```json``` 包裹和 JSON 后有多余文本。"""
         import re
 
@@ -606,7 +606,7 @@ class BaseHealthAdvisor(ABC):
         if "```" in raw:
             m = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
             if m:
-                return json.loads(m.group(1).strip())
+                return json.loads(m.group(1).strip())  # type: ignore[no-any-return]
 
         # 找第一个 { 到其配对的 } 之间的完整 JSON 对象
         start = raw.find("{")
@@ -618,6 +618,6 @@ class BaseHealthAdvisor(ABC):
                 elif ch == "}":
                     depth -= 1
                     if depth == 0:
-                        return json.loads(raw[start : i + 1])
+                        return json.loads(raw[start : i + 1])  # type: ignore[no-any-return]
 
-        return json.loads(raw)
+        return json.loads(raw)  # type: ignore[no-any-return]

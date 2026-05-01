@@ -190,7 +190,7 @@ def score_state(
         s = b.get("std", 0)
         if not s:
             return None
-        return (val - b["mean"]) / s
+        return float(val - b["mean"]) / float(s)
 
     # ── 睡眠 ──
     st = cur.get("sleep_score")

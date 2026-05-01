@@ -55,7 +55,7 @@ class MedicationTracker:
             )
             # 获取刚插入的ID
             row = conn.execute("SELECT last_insert_rowid()").fetchone()
-            med_id = row[0]
+            med_id = int(row[0])  # type: ignore[index]
             log.info("添加用药记录: %s (ID=%d) 用于 %s", name, med_id, condition)
             return med_id
 

@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 class ClaudeHealthAdvisor(BaseHealthAdvisor):
     """基于 Anthropic Claude API 的健康建议引擎。"""
 
-    def __init__(self, config_path: Path = None):
+    def __init__(self, config_path: Path | None = None):
         cfg = load_config() if config_path is None else load_config(config_path)
         self.claude_cfg = cfg.claude
         self._client = None
@@ -42,7 +42,7 @@ class ClaudeHealthAdvisor(BaseHealthAdvisor):
         self,
         guide_keys: list[str],
         profile: "HealthProfile",
-        assessment_results: list["AssessmentResult"] = None,
+        assessment_results: list["AssessmentResult"] | None = None,
     ) -> str:
         """在基类 prompt 基础上，追加 Claude 专属角色说明。"""
         base_prompt = super().build_system_prompt(guide_keys, profile, assessment_results)
@@ -77,4 +77,4 @@ class ClaudeHealthAdvisor(BaseHealthAdvisor):
             messages=[{"role": "user", "content": user_prompt}],
         )
         # content 可能包含 ThinkingBlock + TextBlock，取第一个 TextBlock
-        return next(b.text for b in message.content if b.type == "text").strip()
+        return str(next(b.text for b in message.content if b.type == "text")).strip()

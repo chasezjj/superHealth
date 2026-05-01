@@ -43,7 +43,7 @@ class VitalStats:
     avg_7d_weight: Optional[float] = None
     avg_30d_weight: Optional[float] = None
     weight_change_7d: Optional[float] = None
-    recent_high_bp_readings: list[dict] = None  # 近期高血压记录
+    recent_high_bp_readings: list[dict] | None = None  # 近期高血压记录
 
 
 @dataclass

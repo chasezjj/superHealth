@@ -58,7 +58,7 @@ class StrategyLearner:
         self, feedbacks: list[dict], parsed_tracked: dict[str, dict], conn
     ) -> list[dict]:
         """从 feedback 中提取带 context + treatment + outcome 的训练样本。"""
-        samples = []
+        samples: list[dict] = []
 
         dates = [fb["date"] for fb in feedbacks if fb.get("date")]
         if not dates:
@@ -109,7 +109,7 @@ class StrategyLearner:
         today = date.today()
         for fb in feedbacks:
             d = fb.get("date")
-            tracked = parsed_tracked.get(d)
+            tracked = parsed_tracked.get(d) if d is not None else None  # type: ignore[arg-type]
             if not tracked or not d:
                 continue
 
@@ -138,7 +138,7 @@ class StrategyLearner:
                 primary = self.effect_tracker._pick_primary_exercise(exs)
                 ex_type = self._normalize_exercise_type(primary["name"] if primary else "未知运动")
                 # 只保留主运动用于时长/心率/时段分析，避免辅助运动稀释主类型信号
-                exs = [primary]
+                exs = [primary]  # type: ignore[list-item]
             else:
                 # 无详细运动记录，仍保留样本（仅用于类型学习）
                 exs = [{"avg_hr": None, "duration_seconds": None, "start_time": None}]
@@ -239,7 +239,7 @@ class StrategyLearner:
         samples: list[dict],
         group_fn,
         min_evidence: int = 3,
-    ) -> dict[str, dict]:
+    ) -> dict:
         """通用经验贝叶斯收缩估计器。
 
         group_fn: sample -> group_name | None
@@ -769,7 +769,7 @@ class StrategyLearner:
     # --- 主入口 -----------------------------------------------------------
 
     def learn_from_recent_feedback(
-        self, days: int = 180, active_goals: list[dict] = None
+        self, days: int = 180, active_goals: list[dict] | None = None
     ) -> dict[str, str]:
         """分析近 N 天反馈，更新学习偏好。
 
@@ -840,7 +840,7 @@ class StrategyLearner:
         preference_value: str,
         confidence: float,
         evidence_count: int,
-        goal_id: int = None,
+        goal_id: int | None = None,
         status: str = "active",
     ):
         """写入或更新偏好到数据库。"""
@@ -886,7 +886,7 @@ class StrategyLearner:
         except Exception:
             return []
 
-    def run_full_analysis(self, days: int = 30, active_goals: list[dict] = None) -> dict:
+    def run_full_analysis(self, days: int = 30, active_goals: list[dict] | None = None) -> dict:
         """运行完整的学习流程并返回分析报告。"""
         try:
             recent_effects = self.effect_tracker.track_recent_exercises(days=days)

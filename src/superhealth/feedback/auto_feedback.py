@@ -76,7 +76,7 @@ def _get_readiness(conn, yesterday: str) -> str | None:
         return None
     try:
         rm = RecoveryModel()
-        result = rm.assess(flat, {}, None)  # vitals_data/profile 在 RecoveryModel 中未使用
+        result = rm.assess(flat, {}, None)  # type: ignore[arg-type]  # vitals_data/profile 在 RecoveryModel 中未使用
         for tag in result.tags:
             if tag.startswith("readiness:"):
                 return tag.split(":", 1)[1]
@@ -126,10 +126,10 @@ def _judge_compliance_by_llm(
             log.warning("compliance LLM: Claude API key 未配置")
             return None
 
-        kwargs = {"api_key": claude_cfg.api_key}
         if claude_cfg.base_url:
-            kwargs["base_url"] = claude_cfg.base_url
-        client = anthropic.Anthropic(**kwargs)
+            client = anthropic.Anthropic(api_key=claude_cfg.api_key, base_url=claude_cfg.base_url)
+        else:
+            client = anthropic.Anthropic(api_key=claude_cfg.api_key)
 
         feedback_section = ""
         if user_feedback:
@@ -204,7 +204,7 @@ def _judge_compliance_by_llm(
         return None
 
 
-def run(target_date: str = None, db_path: Path = DB_PATH) -> bool:
+def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
     """为 target_date（默认昨天）自动更新反馈记录。
 
     流程：

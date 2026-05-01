@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 class BaichuanMedicalAdvisor(BaseHealthAdvisor):
     """基于百川医疗大模型的专业医学建议引擎。"""
 
-    def __init__(self, config_path: Path = None):
+    def __init__(self, config_path: Path | None = None):
         cfg = load_config() if config_path is None else load_config(config_path)
         self.baichuan_cfg = cfg.baichuan
         self._client = None
@@ -51,7 +51,7 @@ class BaichuanMedicalAdvisor(BaseHealthAdvisor):
         self,
         guide_keys: list[str],
         profile: "HealthProfile",
-        assessment_results: list["AssessmentResult"] = None,
+        assessment_results: list["AssessmentResult"] | None = None,
     ) -> str:
         """在基类 prompt 基础上，追加百川医疗专属角色说明。"""
         base_prompt = super().build_system_prompt(guide_keys, profile, assessment_results)
@@ -99,4 +99,4 @@ class BaichuanMedicalAdvisor(BaseHealthAdvisor):
                 {"role": "user", "content": combined_user},
             ],
         )
-        return response.choices[0].message.content.strip()
+        return str(response.choices[0].message.content).strip()

@@ -92,7 +92,7 @@ class GoalManager:
                     notes,
                 ),
             )
-            goal_id = cursor.lastrowid
+            goal_id = cursor.lastrowid or 0
             log.info(
                 "GOAL_CREATED id=%d name=%s metric=%s baseline=%.1f target=%s",
                 goal_id,
@@ -151,10 +151,10 @@ class GoalManager:
             ).fetchall()
             return [dict(row) for row in rows]
 
-    def get_active_goals(self, conn: sqlite3.Connection = None) -> list[dict]:
+    def get_active_goals(self, conn: sqlite3.Connection | None = None) -> list[dict]:
         """获取所有 active 目标（供 HealthProfile 等模块调用）。"""
 
-        def _query(c):
+        def _query(c) -> list[dict]:  # type: ignore[no-untyped-def]
             return [
                 dict(r)
                 for r in c.execute(

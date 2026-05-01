@@ -53,7 +53,7 @@ class ModelSelector:
     }
 
     def select(
-        self, profile: "HealthProfile", daily_data: dict = None, goals: list[dict] = None
+        self, profile: "HealthProfile", daily_data: dict | None = None, goals: list[dict] | None = None
     ) -> list[ModelSpec]:
         """返回应激活的模型列表（总是包含基础模型）。
 
@@ -196,7 +196,7 @@ class ModelSelector:
                     model_info = self._GUIDE_MODEL_MAP.get(guide_key)
                     if model_info:
                         name, label = model_info
-                        priority_label = {1: "P1", 2: "P2", 3: "P3"}.get(goal.get("priority"), "")
+                        priority_label = {1: "P1", 2: "P2", 3: "P3"}.get(goal.get("priority") or 0, "")
                         selected.append(
                             ModelSpec(
                                 name=name,

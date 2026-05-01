@@ -14,7 +14,7 @@ import json
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from superhealth import database as db
 from superhealth.feedback.effect_tracker import EffectTracker
@@ -70,7 +70,7 @@ def _extract_tracked_metrics(raw_json: str) -> Optional[dict]:
 def take_snapshot(tag: str, db_path: Path = DB_PATH) -> Path:
     """从 DB 读取当前状态，写入快照 JSON。"""
     tracker = EffectTracker(db_path)
-    snapshot = {
+    snapshot: dict[str, Any] = {
         "tag": tag,
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "learned_preferences": [],
@@ -133,8 +133,8 @@ def take_snapshot(tag: str, db_path: Path = DB_PATH) -> Path:
     return path
 
 
-def _load_snapshot(path: Path) -> dict:
-    return json.loads(path.read_text())
+def _load_snapshot(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text())  # type: ignore[no-any-return]
 
 
 def compare_snapshots(before_path: Path, after_path: Path) -> dict:
@@ -162,7 +162,7 @@ def compare_snapshots(before_path: Path, after_path: Path) -> dict:
 
 
 def _diff_intermediate(before: dict, after: dict) -> dict:
-    diff = {"personal_stds": {}, "global_stds": {}, "schedule_stds": {}, "window": {}, "other": {}}
+    diff: dict[str, Any] = {"personal_stds": {}, "global_stds": {}, "schedule_stds": {}, "window": {}, "other": {}}
 
     for key in ("personal_stds", "global_stds", "schedule_stds"):
         b_vals = before.get(key, {})
@@ -195,26 +195,26 @@ def _pref_key(p: dict) -> str:
 
 
 def _diff_preferences(before: list, after: list) -> dict:
-    b_map = {_pref_key(p): p for p in before}
-    a_map = {_pref_key(p): p for p in after}
+    b_map: dict[str, Any] = {_pref_key(p): p for p in before}
+    a_map: dict[str, Any] = {_pref_key(p): p for p in after}
 
-    diff = {"added": [], "removed": [], "updated": [], "unchanged_count": 0}
+    diff: dict[str, Any] = {"added": [], "removed": [], "updated": [], "unchanged_count": 0}
 
     all_keys = sorted(set(b_map) | set(a_map))
     for k in all_keys:
-        bp = b_map.get(k)
-        ap = a_map.get(k)
+        bp: Any = b_map.get(k)
+        ap: Any = a_map.get(k)
         if bp and not ap:
             diff["removed"].append({"key": k, "before": bp})
         elif ap and not bp:
             diff["added"].append({"key": k, "after": ap})
         else:
-            changes = {}
+            changes: dict[str, Any] = {}
             for field in ("preference_value", "confidence_score", "evidence_count", "status"):
                 if bp.get(field) != ap.get(field):
                     changes[field] = {"before": bp.get(field), "after": ap.get(field)}
             if changes:
-                entry = {"key": k, "changes": changes}
+                entry: dict[str, Any] = {"key": k, "changes": changes}
                 if bp.get("status") == "active" and ap.get("status") == "reverted":
                     entry["type"] = "reverted"
                 elif bp.get("status") == "active" and ap.get("status") == "committed":
@@ -233,12 +233,12 @@ def _diff_preferences(before: list, after: list) -> dict:
 
 
 def _diff_tracked(before: dict, after: dict) -> dict:
-    diff = {"added": [], "removed": [], "changed": [], "unchanged_count": 0}
+    diff: dict[str, Any] = {"added": [], "removed": [], "changed": [], "unchanged_count": 0}
 
     all_dates = sorted(set(before) | set(after))
     for d in all_dates:
-        bt = before.get(d)
-        at = after.get(d)
+        bt: Any = before.get(d)
+        at: Any = after.get(d)
         if bt and not at:
             diff["removed"].append({"date": d, "assessment": bt.get("assessment")})
         elif at and not bt:

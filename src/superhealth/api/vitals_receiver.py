@@ -56,7 +56,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, jsonify, request
 
 from superhealth import database as db
 from superhealth.config import load as load_config
@@ -359,7 +359,7 @@ def create_app(config=None) -> Flask:
         return None
 
     @app.post("/health_data")
-    def receive_health_data() -> Response:
+    def receive_health_data():  # type: ignore[return]
         payload = request.get_json(silent=True)
         if not payload:
             return jsonify({"error": "Invalid JSON"}), 400
@@ -412,7 +412,7 @@ def create_app(config=None) -> Flask:
         return jsonify({"saved": saved, "skipped": skipped}), 200
 
     @app.get("/health")
-    def health_check() -> Response:
+    def health_check():  # type: ignore[return]
         """健康检查（不需要鉴权）。"""
         return jsonify({"status": "ok"}), 200
 

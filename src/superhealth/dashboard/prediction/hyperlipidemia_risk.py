@@ -310,7 +310,7 @@ def _compute_score(
 
     # LDL-C 未达标加分
     if ldl_status == "未达标":
-        base += min(20, ldl_excess * 10)
+        base += int(min(20, ldl_excess * 10))
 
     # TG 加分
     base += tg_grade * 5

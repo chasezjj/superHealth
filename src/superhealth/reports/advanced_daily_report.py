@@ -19,6 +19,7 @@ import argparse
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from superhealth import database as db
 from superhealth.collectors.outlook_collector import fetch_calendar
@@ -160,7 +161,7 @@ class AdvancedDailyReportGenerator:
 
         def _dedup(items: list) -> list:
             """去重：话题关键词匹配 OR 汉字 Jaccard > 0.25，保留更详细的条目。"""
-            result = []
+            result: list[str] = []
             for item in items:
                 kw = _keywords(item)
                 is_dup = False
@@ -211,9 +212,8 @@ class AdvancedDailyReportGenerator:
         weather_data = weather_obj.to_dict() if weather_obj else None
 
         # ── Layer 1: 日历采集 ──
-        calendar_summary = fetch_calendar(day_str, db_path=self.db_path)
-        if calendar_summary:
-            calendar_summary = calendar_summary.to_dict()
+        _cal_obj = fetch_calendar(day_str, db_path=self.db_path)
+        calendar_summary: dict | None = _cal_obj.to_dict() if _cal_obj else None
 
         # ── Layer 2: 健康画像 + 模型选择 ──
         profile = self.profile_builder.build(day_str)
@@ -232,7 +232,7 @@ class AdvancedDailyReportGenerator:
         # ── Layer 3: LLM 建议 ──
         recent_exercises = self._load_recent_exercises(day_str)
         recent_feedback = self._load_recent_feedback(day_str, days=7)
-        advise_kwargs = dict(
+        advise_kwargs: dict[str, Any] = dict(
             daily_data=garmin,
             profile=profile,
             guide_keys=guide_keys,
