@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import math
-import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -32,6 +31,7 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 @dataclass
 class CorrelationResult:
     """相关性分析结果。"""
+
     metric_x: str
     metric_y: str
     n: int  # 样本数
@@ -128,7 +128,9 @@ class CorrelationAnalyzer:
         if days:
             start = (datetime.fromisoformat(end) - timedelta(days=days)).isoformat()[:10]
         else:
-            start = start_date or (datetime.fromisoformat(end) - timedelta(days=90)).isoformat()[:10]
+            start = (
+                start_date or (datetime.fromisoformat(end) - timedelta(days=90)).isoformat()[:10]
+            )
 
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -182,7 +184,7 @@ class CorrelationAnalyzer:
             metric_y=metric_y,
             n=n,
             r=round(r, 3),
-            r_squared=round(r ** 2, 3),
+            r_squared=round(r**2, 3),
             p_value=None,
             interpretation=interpretation,
         )
@@ -235,7 +237,7 @@ class CorrelationAnalyzer:
             metric_y=f"{metric_y}(t+{lag_days})",
             n=n,
             r=round(r, 3),
-            r_squared=round(r ** 2, 3),
+            r_squared=round(r**2, 3),
             p_value=None,
             interpretation=interpretation,
         )
@@ -274,15 +276,12 @@ class CorrelationAnalyzer:
             ("sleep_score", "hrv_avg", 1, "睡眠评分 → 次日HRV"),
             ("sleep_score", "body_battery_wake", 1, "睡眠评分 → 次日Body Battery"),
             ("sleep_duration", "resting_hr", 1, "睡眠时长 → 次日静息心率"),
-
             # 运动对恢复的影响
             ("steps", "body_battery_wake", 1, "步数 → 次日Body Battery"),
             ("active_calories", "body_battery_wake", 1, "活动卡路里 → 次日Body Battery"),
-
             # 压力与其他指标
             ("avg_stress", "sleep_score", 0, "压力水平 ↔ 睡眠评分"),
             ("avg_stress", "hrv_avg", 0, "压力水平 ↔ HRV"),
-
             # 心率相关
             ("resting_hr", "hrv_avg", 0, "静息心率 ↔ HRV"),
             ("sleep_score", "resting_hr", 1, "睡眠评分 → 次日静息心率"),
@@ -318,7 +317,7 @@ class CorrelationAnalyzer:
         matrix = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
 
         for i, mi in enumerate(metrics):
-            for j, mj in enumerate(metrics[i+1:], i+1):
+            for j, mj in enumerate(metrics[i + 1 :], i + 1):
                 try:
                     result = self.correlate_same_day(mi, mj, days)
                     matrix[i][j] = result.r
@@ -356,7 +355,9 @@ def generate_correlation_report(days: int = 90) -> str:
         lines.append(f"{emoji} **{result.interpretation}**")
         lines.append(f"   - 相关系数: r = {result.r} ({result.strength()}, {result.direction()})")
         lines.append(f"   - 样本数: n = {result.n}")
-        lines.append(f"   - 解释力: R² = {result.r_squared}（可解释{result.r_squared*100:.1f}%的变异）")
+        lines.append(
+            f"   - 解释力: R² = {result.r_squared}（可解释{result.r_squared * 100:.1f}%的变异）"
+        )
         lines.append("")
 
     # 洞察总结
@@ -383,21 +384,33 @@ def generate_correlation_report(days: int = 90) -> str:
     lines.append("")
 
     # 根据相关性给出建议
-    sleep_hrv = next((r for r in results if "睡眠评分" in r.interpretation and "HRV" in r.interpretation), None)
+    sleep_hrv = next(
+        (r for r in results if "睡眠评分" in r.interpretation and "HRV" in r.interpretation), None
+    )
     if sleep_hrv and sleep_hrv.r > 0.3:
-        lines.append(f"1. **睡眠质量对恢复至关重要**: 睡眠评分与次日HRV呈{sleep_hrv.direction()}（r={sleep_hrv.r}），")
+        lines.append(
+            f"1. **睡眠质量对恢复至关重要**: 睡眠评分与次日HRV呈{sleep_hrv.direction()}（r={sleep_hrv.r}），"
+        )
         lines.append("   优先保证睡眠质量可显著改善次日身体恢复状态。")
         lines.append("")
 
-    stress_hrv = next((r for r in results if "压力" in r.interpretation and "HRV" in r.interpretation), None)
+    stress_hrv = next(
+        (r for r in results if "压力" in r.interpretation and "HRV" in r.interpretation), None
+    )
     if stress_hrv and stress_hrv.r < -0.3:
-        lines.append(f"2. **压力管理有助恢复**: 压力水平与HRV呈{stress_hrv.direction()}（r={stress_hrv.r}），")
+        lines.append(
+            f"2. **压力管理有助恢复**: 压力水平与HRV呈{stress_hrv.direction()}（r={stress_hrv.r}），"
+        )
         lines.append("   建议在高压力日增加放松活动。")
         lines.append("")
 
-    exercise_recovery = next((r for r in results if "步数" in r.interpretation or "卡路里" in r.interpretation), None)
+    exercise_recovery = next(
+        (r for r in results if "步数" in r.interpretation or "卡路里" in r.interpretation), None
+    )
     if exercise_recovery and exercise_recovery.r < -0.2:
-        lines.append(f"3. **注意运动恢复平衡**: 运动量与次日恢复呈{exercise_recovery.direction()}（r={exercise_recovery.r}），")
+        lines.append(
+            f"3. **注意运动恢复平衡**: 运动量与次日恢复呈{exercise_recovery.direction()}（r={exercise_recovery.r}），"
+        )
         lines.append("   大运动量后需确保充足恢复时间。")
         lines.append("")
 

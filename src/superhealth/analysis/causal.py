@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -166,7 +166,7 @@ def _f_pvalue(f_stat: float, d1: int, d2: int) -> float:
 
     # Wilson-Hilferty: F^(1/3) 近似正态
     term1 = (1 - 2 / (9 * d2)) * (f_stat ** (1 / 3))
-    term2 = (1 - 2 / (9 * d1))
+    term2 = 1 - 2 / (9 * d1)
     denom = math.sqrt(2 / (9 * d1) + (2 / (9 * d2)) * (f_stat ** (2 / 3)))
 
     if denom == 0:
@@ -282,7 +282,6 @@ class CausalInferenceAnalyzer:
         # 受限模型
         X_r = np.column_stack([np.ones(n_obs), Y_lags])
         beta_r, rss_r, _, se_r = _ols_fit(X_r, y_target)
-        df_r = n_obs - max_lag - 1
 
         # 非受限模型
         X_u = np.column_stack([np.ones(n_obs), Y_lags, X_lags])
@@ -314,9 +313,7 @@ class CausalInferenceAnalyzer:
         else:
             direction = f"{metric_x} 的过去值无法显著预测 {metric_y}"
 
-        interpretation = (
-            f"滞后={max_lag} 期，F={f_stat:.2f}，p={p_value:.3f}，n={len(common_dates)}：{direction}"
-        )
+        interpretation = f"滞后={max_lag} 期，F={f_stat:.2f}，p={p_value:.3f}，n={len(common_dates)}：{direction}"
 
         return GrangerResult(
             metric_x=metric_x,
@@ -369,12 +366,20 @@ class CausalInferenceAnalyzer:
         由于每日数据存在自相关，不宜做逐日配对，
         改为比较基线期和干预期各自的日均值差异（Welch's t-test，更稳健）。
         """
-        end_baseline = (datetime.fromisoformat(intervention_date) - timedelta(days=1)).isoformat()[:10]
-        start_baseline = (datetime.fromisoformat(end_baseline) - timedelta(days=period_days - 1)).isoformat()[:10]
+        end_baseline = (datetime.fromisoformat(intervention_date) - timedelta(days=1)).isoformat()[
+            :10
+        ]
+        start_baseline = (
+            datetime.fromisoformat(end_baseline) - timedelta(days=period_days - 1)
+        ).isoformat()[:10]
         start_post = intervention_date
-        end_post = (datetime.fromisoformat(start_post) + timedelta(days=period_days - 1)).isoformat()[:10]
+        end_post = (
+            datetime.fromisoformat(start_post) + timedelta(days=period_days - 1)
+        ).isoformat()[:10]
 
-        baseline_series = self.get_metric_series(metric, start_date=start_baseline, end_date=end_baseline)
+        baseline_series = self.get_metric_series(
+            metric, start_date=start_baseline, end_date=end_baseline
+        )
         post_series = self.get_metric_series(metric, start_date=start_post, end_date=end_post)
 
         baseline_vals = [s["value"] for s in baseline_series if s["value"] is not None]
@@ -406,7 +411,11 @@ class CausalInferenceAnalyzer:
         # 合并标准差（Cohen's d 用）
         var_b = sum((v - mean_b) ** 2 for v in baseline_vals) / n_b
         var_p = sum((v - mean_p) ** 2 for v in post_vals) / n_p
-        pooled_std = math.sqrt(((n_b - 1) * var_b + (n_p - 1) * var_p) / (n_b + n_p - 2)) if (n_b + n_p) > 2 else 0
+        pooled_std = (
+            math.sqrt(((n_b - 1) * var_b + (n_p - 1) * var_p) / (n_b + n_p - 2))
+            if (n_b + n_p) > 2
+            else 0
+        )
 
         cohens_d = diff / pooled_std if pooled_std > 0 else 0.0
 
@@ -511,8 +520,12 @@ class CausalInferenceAnalyzer:
         - β2：水平变化（干预点跳跃）
         - β3：斜率变化（干预后趋势改变）
         """
-        start = (datetime.fromisoformat(intervention_date) - timedelta(days=pre_days)).isoformat()[:10]
-        end = (datetime.fromisoformat(intervention_date) + timedelta(days=post_days)).isoformat()[:10]
+        start = (datetime.fromisoformat(intervention_date) - timedelta(days=pre_days)).isoformat()[
+            :10
+        ]
+        end = (datetime.fromisoformat(intervention_date) + timedelta(days=post_days)).isoformat()[
+            :10
+        ]
 
         series = self.get_metric_series(metric, start_date=start, end_date=end)
         if len(series) < pre_days + post_days // 2:
@@ -610,13 +623,9 @@ class CausalInferenceAnalyzer:
 
         parts = []
         if level_p < 0.1:
-            parts.append(
-                f"水平显著变化 {level_change:+.2f}（p={level_p:.3f}）"
-            )
+            parts.append(f"水平显著变化 {level_change:+.2f}（p={level_p:.3f}）")
         if slope_p < 0.1:
-            parts.append(
-                f"斜率显著变化 {slope_change:+.3f}/天（p={slope_p:.3f}）"
-            )
+            parts.append(f"斜率显著变化 {slope_change:+.3f}/天（p={slope_p:.3f}）")
         if not parts:
             parts.append("水平与斜率均无显著变化")
 

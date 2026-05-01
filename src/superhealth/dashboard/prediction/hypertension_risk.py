@@ -20,12 +20,10 @@ import pandas as pd
 
 from superhealth.dashboard.data_loader import (
     get_user_profile,
-    load_daily_health,
     load_eye_exams,
     load_lab_results,
     load_vitals,
 )
-
 
 # ─── 血压分级 ────────────────────────────────────────────────────────
 
@@ -78,6 +76,7 @@ def _bp_grade(sbp: Optional[float], dbp: Optional[float]) -> int:
 
 
 # ─── 危险因素评估 ─────────────────────────────────────────────────────
+
 
 def _check_age_risk(profile: dict) -> tuple[bool, str]:
     """年龄：男性 >55 岁。"""
@@ -163,6 +162,7 @@ def _check_bp_trend_risk(df_vitals: pd.DataFrame) -> tuple[bool, str]:
 
 # ─── 靶器官损害 ──────────────────────────────────────────────────────
 
+
 def _check_kidney_damage(df_lab: pd.DataFrame) -> tuple[bool, str]:
     """肾功能异常：肌酐 >133 μmol/L（男）或尿素偏高。"""
     if df_lab.empty:
@@ -207,11 +207,14 @@ def _check_eye_damage(df_eye: pd.DataFrame) -> tuple[bool, str]:
 
 # ─── 临床合并症 ──────────────────────────────────────────────────────
 
+
 def _check_diabetes(df_lab: pd.DataFrame) -> tuple[bool, str]:
     """糖尿病：空腹血糖 ≥7.0 或 HbA1c ≥6.5%。"""
     if df_lab.empty:
         return False, ""
-    fg = df_lab[df_lab["item_name"].str.contains("空腹血糖|Fasting Glucose|FBG|GLU", case=False, na=False)]
+    fg = df_lab[
+        df_lab["item_name"].str.contains("空腹血糖|Fasting Glucose|FBG|GLU", case=False, na=False)
+    ]
     if not fg.empty:
         val = float(fg["value"].iloc[-1])
         if val >= 7.0:
@@ -304,6 +307,7 @@ def _risk_to_score(risk_level: str, sbp: Optional[float], dbp: Optional[float]) 
 
 
 # ─── 主计算函数 ──────────────────────────────────────────────────────
+
 
 def compute(days: int = 90) -> dict:
     """基于中国高血压防治指南计算高血压风险分层。

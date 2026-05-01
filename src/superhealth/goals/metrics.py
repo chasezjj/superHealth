@@ -10,12 +10,10 @@ metric_key 后缀编码聚合方式：
 from __future__ import annotations
 
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
-from statistics import mean
 from typing import Optional
-
-import sqlite3
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +24,7 @@ MIN_BASELINE_DAYS = 3
 @dataclass
 class MetricSpec:
     """指标规格。"""
+
     key: str
     label: str
     table: str
@@ -140,8 +139,9 @@ VALID_METRIC_KEYS = set(METRIC_REGISTRY.keys())
 class GoalMetricRegistry:
     """指标聚合器：根据 metric_key 查询数据库并计算聚合值。"""
 
-    def get_current_value(self, conn: sqlite3.Connection,
-                          metric_key: str, ref_date: str) -> Optional[float]:
+    def get_current_value(
+        self, conn: sqlite3.Connection, metric_key: str, ref_date: str
+    ) -> Optional[float]:
         """取 ref_date 前 7 天（含 ref_date）的聚合值。
 
         对于低频指标（_latest），取最近一次有数据的值（不限日期）。
@@ -156,8 +156,9 @@ class GoalMetricRegistry:
             return self._query_latest(conn, spec, ref_date)
         return None
 
-    def get_baseline(self, conn: sqlite3.Connection,
-                     metric_key: str, start_date: str) -> Optional[float]:
+    def get_baseline(
+        self, conn: sqlite3.Connection, metric_key: str, start_date: str
+    ) -> Optional[float]:
         """取 start_date 前 7 天（不含 start_date）的聚合值作为基线。
 
         需要至少 MIN_BASELINE_DAYS 天数据，否则返回 None。
@@ -175,18 +176,21 @@ class GoalMetricRegistry:
             return self._query_latest_before(conn, spec, start_date)
         return None
 
-    def _query_mean_7d(self, conn: sqlite3.Connection,
-                       spec: MetricSpec, ref_date: str) -> Optional[float]:
+    def _query_mean_7d(
+        self, conn: sqlite3.Connection, spec: MetricSpec, ref_date: str
+    ) -> Optional[float]:
         """查询 ref_date 前 7 天（含）的均值。"""
         start = (date.fromisoformat(ref_date) - timedelta(days=6)).isoformat()
         return self._query_mean_range(conn, spec, start, ref_date)
 
-    def _query_mean_range(self, conn: sqlite3.Connection,
-                          spec: MetricSpec, start: str, end: str) -> Optional[float]:
+    def _query_mean_range(
+        self, conn: sqlite3.Connection, spec: MetricSpec, start: str, end: str
+    ) -> Optional[float]:
         """查询 [start, end] 区间内的均值。"""
         if spec.table == "vitals":
             # vitals 表可能有每天多条记录（多次测量），按日期聚合
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT AVG(day_avg) FROM (
                     SELECT DATE(measured_at) AS d, AVG({spec.column}) AS day_avg
                     FROM vitals
@@ -194,87 +198,123 @@ class GoalMetricRegistry:
                       AND DATE(measured_at) BETWEEN ? AND ?
                     GROUP BY d
                 )
-            """, (start, end)).fetchone()
+            """,
+                (start, end),
+            ).fetchone()
         elif spec.table == "lab_results":
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT AVG({spec.column}) FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date BETWEEN ? AND ?
                   AND item_name IN ('尿酸', '血尿酸', 'UA')
-            """, (start, end)).fetchone()
+            """,
+                (start, end),
+            ).fetchone()
         elif spec.table == "eye_exams":
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT AVG((od_iop + os_iop) / 2.0) FROM {spec.table}
                 WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
                   AND date BETWEEN ? AND ?
-            """, (start, end)).fetchone()
+            """,
+                (start, end),
+            ).fetchone()
         else:
-            rows = conn.execute(f"""
+            rows = conn.execute(
+                f"""
                 SELECT AVG({spec.column}) FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date BETWEEN ? AND ?
-            """, (start, end)).fetchone()
+            """,
+                (start, end),
+            ).fetchone()
 
         return rows[0] if rows and rows[0] is not None else None
 
-    def _query_latest(self, conn: sqlite3.Connection,
-                      spec: MetricSpec, ref_date: str) -> Optional[float]:
+    def _query_latest(
+        self, conn: sqlite3.Connection, spec: MetricSpec, ref_date: str
+    ) -> Optional[float]:
         """查询 ref_date 及之前的最近一次检测值。"""
         if spec.table == "lab_results":
-            row = conn.execute(f"""
+            row = conn.execute(
+                f"""
                 SELECT {spec.column} FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date <= ?
                   AND item_name IN ('尿酸', '血尿酸', 'UA')
                 ORDER BY date DESC LIMIT 1
-            """, (ref_date,)).fetchone()
+            """,
+                (ref_date,),
+            ).fetchone()
         elif spec.table == "eye_exams":
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT (od_iop + os_iop) / 2.0 FROM eye_exams
                 WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
                   AND date <= ?
                 ORDER BY date DESC LIMIT 1
-            """, (ref_date,)).fetchone()
+            """,
+                (ref_date,),
+            ).fetchone()
         else:
-            row = conn.execute(f"""
+            row = conn.execute(
+                f"""
                 SELECT {spec.column} FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date <= ?
                 ORDER BY date DESC LIMIT 1
-            """, (ref_date,)).fetchone()
+            """,
+                (ref_date,),
+            ).fetchone()
 
         return row[0] if row and row[0] is not None else None
 
-    def _query_latest_before(self, conn: sqlite3.Connection,
-                             spec: MetricSpec, before_date: str) -> Optional[float]:
+    def _query_latest_before(
+        self, conn: sqlite3.Connection, spec: MetricSpec, before_date: str
+    ) -> Optional[float]:
         """查询 before_date 之前（不含）的最近一次检测值。"""
         if spec.table == "lab_results":
-            row = conn.execute(f"""
+            row = conn.execute(
+                f"""
                 SELECT {spec.column} FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date < ?
                   AND item_name IN ('尿酸', '血尿酸', 'UA')
                 ORDER BY date DESC LIMIT 1
-            """, (before_date,)).fetchone()
+            """,
+                (before_date,),
+            ).fetchone()
         elif spec.table == "eye_exams":
-            row = conn.execute("""
+            row = conn.execute(
+                """
                 SELECT (od_iop + os_iop) / 2.0 FROM eye_exams
                 WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
                   AND date < ?
                 ORDER BY date DESC LIMIT 1
-            """, (before_date,)).fetchone()
+            """,
+                (before_date,),
+            ).fetchone()
         else:
-            row = conn.execute(f"""
+            row = conn.execute(
+                f"""
                 SELECT {spec.column} FROM {spec.table}
                 WHERE {spec.column} IS NOT NULL
                   AND date < ?
                 ORDER BY date DESC LIMIT 1
-            """, (before_date,)).fetchone()
+            """,
+                (before_date,),
+            ).fetchone()
 
         return row[0] if row and row[0] is not None else None
 
-    def compute_progress(self, current: Optional[float], baseline: Optional[float],
-                         target: Optional[float], direction: str) -> Optional[float]:
+    def compute_progress(
+        self,
+        current: Optional[float],
+        baseline: Optional[float],
+        target: Optional[float],
+        direction: str,
+    ) -> Optional[float]:
         """计算达成进度百分比（可负可超100）。
 
         direction=decrease：从 baseline 往 target 降，当前>baseline 时进度为负

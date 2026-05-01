@@ -61,7 +61,7 @@ class WechatConfig:
 
 @dataclass
 class VitalsConfig:
-    api_token: str = ""   # Health Auto Export 鉴权 token（X-API-Key header）
+    api_token: str = ""  # Health Auto Export 鉴权 token（X-API-Key header）
     host: str = "0.0.0.0"
     port: int = 5000
 
@@ -71,10 +71,10 @@ class VitalsConfig:
 
 @dataclass
 class ClaudeConfig:
-    api_key: str = ""                    # Anthropic API key
-    model: str = "claude-sonnet-4-6"     # 默认模型
-    max_tokens: int = 1024               # 最大输出 token
-    base_url: str = ""                   # 自定义 endpoint（留空则用官方地址）
+    api_key: str = ""  # Anthropic API key
+    model: str = "claude-sonnet-4-6"  # 默认模型
+    max_tokens: int = 1024  # 最大输出 token
+    base_url: str = ""  # 自定义 endpoint（留空则用官方地址）
 
     def is_complete(self) -> bool:
         return bool(self.api_key)
@@ -82,9 +82,9 @@ class ClaudeConfig:
 
 @dataclass
 class BaichuanConfig:
-    api_key: str = ""                            # 百川 API key
-    model: str = "Baichuan-M3-Plus"              # 百川医疗模型名
-    max_tokens: int = 1024                       # 最大输出 token
+    api_key: str = ""  # 百川 API key
+    model: str = "Baichuan-M3-Plus"  # 百川医疗模型名
+    max_tokens: int = 1024  # 最大输出 token
     base_url: str = "https://api.baichuan-ai.com/v1"  # 百川 API endpoint
 
     def is_complete(self) -> bool:
@@ -99,11 +99,11 @@ class AdvisorConfig:
 
 @dataclass
 class WeatherConfig:
-    api_key: str = ""          # 和风天气 API key
-    city: str = ""            # 城市名称（如：北京）
-    location_id: str = ""     # 和风天气城市ID（如：101010100）
-    api_host: str = ""         # 私有 API host，如 n95rk72uwg.re.qweatherapi.com
-    latitude: float = 39.92   # 纬度（用于空气质量 API）
+    api_key: str = ""  # 和风天气 API key
+    city: str = ""  # 城市名称（如：北京）
+    location_id: str = ""  # 和风天气城市ID（如：101010100）
+    api_host: str = ""  # 私有 API host，如 n95rk72uwg.re.qweatherapi.com
+    latitude: float = 39.92  # 纬度（用于空气质量 API）
     longitude: float = 116.41  # 经度（用于空气质量 API）
 
     def is_complete(self) -> bool:
@@ -112,16 +112,16 @@ class WeatherConfig:
 
 @dataclass
 class DashboardConfig:
-    password: str = ""       # 仪表盘访问密码（空字符串=不设密码）
+    password: str = ""  # 仪表盘访问密码（空字符串=不设密码）
     session_token: str = ""  # 自动登录 token（query param 持久化）
-    saved_password: str = "" # 用户勾选“记住密码”后保存的密码
+    saved_password: str = ""  # 用户勾选“记住密码”后保存的密码
 
 
 @dataclass
 class OutlookConfig:
-    username: str = ""   # Exchange 用户名
-    email: str = ""      # 邮箱地址
-    password: str = ""   # 密码
+    username: str = ""  # Exchange 用户名
+    email: str = ""  # 邮箱地址
+    password: str = ""  # 密码
     timezone: str = "Asia/Shanghai"
 
     def is_complete(self) -> bool:
@@ -146,45 +146,27 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
     raw: dict[str, Any] = {}
     if config_path.exists():
         if tomllib is None:
-            raise ImportError(
-                "需要 tomllib（Python 3.11+）或安装 tomli: pip install tomli"
-            )
+            raise ImportError("需要 tomllib（Python 3.11+）或安装 tomli: pip install tomli")
         with open(config_path, "rb") as f:
             raw = tomllib.load(f)
 
     garmin_raw = raw.get("garmin", {})
     garmin = GarminConfig(
-        email=os.environ.get(
-            "HEALTHY_GARMIN_EMAIL", garmin_raw.get("email", "")
-        ),
-        password=os.environ.get(
-            "HEALTHY_GARMIN_PASSWORD", garmin_raw.get("password", "")
-        ),
+        email=os.environ.get("HEALTHY_GARMIN_EMAIL", garmin_raw.get("email", "")),
+        password=os.environ.get("HEALTHY_GARMIN_PASSWORD", garmin_raw.get("password", "")),
     )
 
     wechat_raw = raw.get("wechat", {})
     wechat = WechatConfig(
-        account_id=os.environ.get(
-            "HEALTHY_WECHAT_ACCOUNT_ID", wechat_raw.get("account_id", "")
-        ),
-        channel=os.environ.get(
-            "HEALTHY_WECHAT_CHANNEL", wechat_raw.get("channel", "")
-        ),
-        target=os.environ.get(
-            "HEALTHY_WECHAT_TARGET", wechat_raw.get("target", "")
-        ),
+        account_id=os.environ.get("HEALTHY_WECHAT_ACCOUNT_ID", wechat_raw.get("account_id", "")),
+        channel=os.environ.get("HEALTHY_WECHAT_CHANNEL", wechat_raw.get("channel", "")),
+        target=os.environ.get("HEALTHY_WECHAT_TARGET", wechat_raw.get("target", "")),
     )
     vitals_raw = raw.get("vitals", {})
     vitals = VitalsConfig(
-        api_token=os.environ.get(
-            "HEALTHY_VITALS_API_TOKEN", vitals_raw.get("api_token", "")
-        ),
-        host=os.environ.get(
-            "HEALTHY_VITALS_HOST", vitals_raw.get("host", "0.0.0.0")
-        ),
-        port=int(os.environ.get(
-            "HEALTHY_VITALS_PORT", vitals_raw.get("port", 5000)
-        )),
+        api_token=os.environ.get("HEALTHY_VITALS_API_TOKEN", vitals_raw.get("api_token", "")),
+        host=os.environ.get("HEALTHY_VITALS_HOST", vitals_raw.get("host", "0.0.0.0")),
+        port=int(os.environ.get("HEALTHY_VITALS_PORT", vitals_raw.get("port", 5000))),
     )
 
     claude_raw = raw.get("claude", {})
@@ -197,8 +179,7 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
         or os.environ.get("HEALTHY_CLAUDE_MODEL", "")
         or "claude-sonnet-4-6",
         max_tokens=int(
-            claude_raw.get("max_tokens", 0)
-            or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 1024)
+            claude_raw.get("max_tokens", 0) or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 1024)
         ),
         base_url=claude_raw.get("base_url", "")
         or os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -207,24 +188,16 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
 
     weather_raw = raw.get("weather", {})
     weather = WeatherConfig(
-        api_key=os.environ.get(
-            "HEALTHY_WEATHER_API_KEY", weather_raw.get("api_key", "")
-        ),
-        city=os.environ.get(
-            "HEALTHY_WEATHER_CITY", weather_raw.get("city", "")
-        ),
+        api_key=os.environ.get("HEALTHY_WEATHER_API_KEY", weather_raw.get("api_key", "")),
+        city=os.environ.get("HEALTHY_WEATHER_CITY", weather_raw.get("city", "")),
         location_id=os.environ.get(
             "HEALTHY_WEATHER_LOCATION_ID", weather_raw.get("location_id", "")
         ),
-        api_host=os.environ.get(
-            "HEALTHY_WEATHER_API_HOST", weather_raw.get("api_host", "")
+        api_host=os.environ.get("HEALTHY_WEATHER_API_HOST", weather_raw.get("api_host", "")),
+        latitude=float(os.environ.get("HEALTHY_WEATHER_LAT", weather_raw.get("latitude", 39.92))),
+        longitude=float(
+            os.environ.get("HEALTHY_WEATHER_LON", weather_raw.get("longitude", 116.41))
         ),
-        latitude=float(os.environ.get(
-            "HEALTHY_WEATHER_LAT", weather_raw.get("latitude", 39.92)
-        )),
-        longitude=float(os.environ.get(
-            "HEALTHY_WEATHER_LON", weather_raw.get("longitude", 116.41)
-        )),
     )
 
     baichuan_raw = raw.get("baichuan", {})
@@ -239,40 +212,36 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
 
     advisor_raw = raw.get("advisor", {})
     advisor = AdvisorConfig(
-        mode=os.environ.get(
-            "HEALTHY_ADVISOR_MODE", advisor_raw.get("mode", "claude_only")
-        ),
+        mode=os.environ.get("HEALTHY_ADVISOR_MODE", advisor_raw.get("mode", "claude_only")),
     )
 
     dashboard_raw = raw.get("dashboard", {})
     dashboard = DashboardConfig(
-        password=os.environ.get(
-            "HEALTHY_DASHBOARD_PASSWORD", dashboard_raw.get("password", "")
-        ),
+        password=os.environ.get("HEALTHY_DASHBOARD_PASSWORD", dashboard_raw.get("password", "")),
         session_token=dashboard_raw.get("session_token", ""),
         saved_password=dashboard_raw.get("saved_password", ""),
     )
 
     outlook_raw = raw.get("outlook", {})
     outlook = OutlookConfig(
-        username=os.environ.get(
-            "HEALTHY_OUTLOOK_USERNAME", outlook_raw.get("username", "")
-        ),
-        email=os.environ.get(
-            "HEALTHY_OUTLOOK_EMAIL", outlook_raw.get("email", "")
-        ),
-        password=os.environ.get(
-            "HEALTHY_OUTLOOK_PASSWORD", outlook_raw.get("password", "")
-        ),
+        username=os.environ.get("HEALTHY_OUTLOOK_USERNAME", outlook_raw.get("username", "")),
+        email=os.environ.get("HEALTHY_OUTLOOK_EMAIL", outlook_raw.get("email", "")),
+        password=os.environ.get("HEALTHY_OUTLOOK_PASSWORD", outlook_raw.get("password", "")),
         timezone=os.environ.get(
             "HEALTHY_OUTLOOK_TIMEZONE", outlook_raw.get("timezone", "Asia/Shanghai")
         ),
     )
 
     return AppConfig(
-        garmin=garmin, wechat=wechat, vitals=vitals, claude=claude,
-        weather=weather, baichuan=baichuan, advisor=advisor,
-        dashboard=dashboard, outlook=outlook,
+        garmin=garmin,
+        wechat=wechat,
+        vitals=vitals,
+        claude=claude,
+        weather=weather,
+        baichuan=baichuan,
+        advisor=advisor,
+        dashboard=dashboard,
+        outlook=outlook,
     )
 
 

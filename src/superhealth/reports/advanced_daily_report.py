@@ -16,22 +16,21 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from superhealth import database as db
+from superhealth.collectors.outlook_collector import fetch_calendar
+from superhealth.collectors.weather_collector import fetch_weather
 from superhealth.config import load as load_config
-from superhealth.reports.daily_report import DailyReportGenerator
+from superhealth.core.assessment_models import run_assessments
+from superhealth.core.baichuan_advisor import BaichuanMedicalAdvisor
+from superhealth.core.claude_advisor import ClaudeHealthAdvisor
 from superhealth.core.health_profile_builder import HealthProfileBuilder
 from superhealth.core.model_selector import ModelSelector
-from superhealth.core.assessment_models import run_assessments
-from superhealth.core.claude_advisor import ClaudeHealthAdvisor
-from superhealth.core.baichuan_advisor import BaichuanMedicalAdvisor
-from superhealth.collectors.weather_collector import fetch_weather
-from superhealth.collectors.outlook_collector import fetch_calendar
 from superhealth.reminders.reminder_notifier import build_report_section as _build_reminder_section
+from superhealth.reports.daily_report import DailyReportGenerator
 
 log = logging.getLogger(__name__)
 
@@ -65,8 +64,11 @@ class AdvancedDailyReportGenerator:
     def _load_recent_exercises(self, day_str: str, days: int = 7) -> list[dict]:
         """查询 day_str 之前 days 天的运动记录（含当天）。"""
         from datetime import timedelta
+
         end = day_str
-        start = (datetime.strptime(day_str, "%Y-%m-%d").date() - timedelta(days=days - 1)).isoformat()
+        start = (
+            datetime.strptime(day_str, "%Y-%m-%d").date() - timedelta(days=days - 1)
+        ).isoformat()
         with self._get_conn() as conn:
             rows = conn.execute(
                 """
@@ -80,16 +82,22 @@ class AdvancedDailyReportGenerator:
             ).fetchall()
         result = []
         for r in rows:
-            result.append({
-                "date": r["date"],
-                "name": r["name"],
-                "type_key": r["type_key"],
-                "duration_min": round(r["duration_seconds"] / 60) if r["duration_seconds"] else None,
-                "distance_km": round(r["distance_meters"] / 1000, 1) if r["distance_meters"] else None,
-                "avg_hr": r["avg_hr"],
-                "max_hr": r["max_hr"],
-                "calories": r["calories"],
-            })
+            result.append(
+                {
+                    "date": r["date"],
+                    "name": r["name"],
+                    "type_key": r["type_key"],
+                    "duration_min": round(r["duration_seconds"] / 60)
+                    if r["duration_seconds"]
+                    else None,
+                    "distance_km": round(r["distance_meters"] / 1000, 1)
+                    if r["distance_meters"]
+                    else None,
+                    "avg_hr": r["avg_hr"],
+                    "max_hr": r["max_hr"],
+                    "calories": r["calories"],
+                }
+            )
         return result
 
     def _load_recent_feedback(self, day_str: str, days: int = 7) -> list[dict]:
@@ -113,14 +121,16 @@ class AdvancedDailyReportGenerator:
             ).fetchall()
         result = []
         for r in rows:
-            result.append({
-                "date": r["date"],
-                "recommendation_type": r["recommendation_type"],
-                "recommendation_content": r["recommendation_content"],
-                "actual_action": r["actual_action"],
-                "user_feedback": r["user_feedback"],
-                "compliance": r["compliance"],
-            })
+            result.append(
+                {
+                    "date": r["date"],
+                    "recommendation_type": r["recommendation_type"],
+                    "recommendation_content": r["recommendation_content"],
+                    "actual_action": r["actual_action"],
+                    "user_feedback": r["user_feedback"],
+                    "compliance": r["compliance"],
+                }
+            )
         return result
 
     @staticmethod
@@ -130,7 +140,7 @@ class AdvancedDailyReportGenerator:
 
         def _keywords(text: str) -> set:
             """提取单个汉字作为关键词（对数字/英文分隔的文本更鲁棒）。"""
-            return set(re.findall(r'[\u4e00-\u9fff]', text))
+            return set(re.findall(r"[\u4e00-\u9fff]", text))
 
         # 话题关键词：命中同一组任意词 → 同话题，直接视为重复
         _TOPIC_GROUPS = [
@@ -207,13 +217,17 @@ class AdvancedDailyReportGenerator:
 
         # ── Layer 2: 健康画像 + 模型选择 ──
         profile = self.profile_builder.build(day_str)
-        selected_models = self.model_selector.select(profile, vitals_today, goals=profile.active_goals)
+        selected_models = self.model_selector.select(
+            profile, vitals_today, goals=profile.active_goals
+        )
         model_names = self.model_selector.get_model_names(selected_models)
         guide_keys = self.model_selector.get_guide_keys(selected_models)
 
         # ── Layer 2: 运行评估模型 ──
         assessment_results = run_assessments(model_names, garmin, vitals_today, profile)
-        recovery_result = next((r for r in assessment_results if r.model_name == "RecoveryModel"), None)
+        recovery_result = next(
+            (r for r in assessment_results if r.model_name == "RecoveryModel"), None
+        )
 
         # ── Layer 3: LLM 建议 ──
         recent_exercises = self._load_recent_exercises(day_str)
@@ -235,10 +249,11 @@ class AdvancedDailyReportGenerator:
         elif self.advisor_mode == "both":
             # 并行调用两个 LLM，避免串行等待（节省 50% 耗时）
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                f_claude   = pool.submit(self.claude_advisor.advise, **advise_kwargs)
+                f_claude = pool.submit(self.claude_advisor.advise, **advise_kwargs)
                 f_baichuan = pool.submit(self.baichuan_advisor.advise, **advise_kwargs)
-                claude_result   = f_claude.result()
+                claude_result = f_claude.result()
                 baichuan_result = f_baichuan.result()
             llm_advice = self._merge_advice(claude_result, baichuan_result)
         else:  # claude_only（默认）
@@ -248,7 +263,9 @@ class AdvancedDailyReportGenerator:
         if not test_mode:
             report_id = f"{day_str}-advanced-daily-report"
             exercise_advice = llm_advice.get("exercise", {})
-            recommendation_content = exercise_advice.get("specific") or exercise_advice.get("type") or ""
+            recommendation_content = (
+                exercise_advice.get("specific") or exercise_advice.get("type") or ""
+            )
             # 获取 LLM 判断的建议类型（exercise/recovery/rest），默认 exercise
             rec_type = llm_advice.get("recommendation_type", "exercise")
             if rec_type not in ("exercise", "recovery", "rest"):
@@ -259,7 +276,7 @@ class AdvancedDailyReportGenerator:
                         "SELECT id, user_feedback FROM recommendation_feedback "
                         "WHERE date = ? AND recommendation_type = ? "
                         "ORDER BY id DESC LIMIT 1",
-                        (day_str, rec_type)
+                        (day_str, rec_type),
                     ).fetchone()
                     if not existing:
                         db.insert_recommendation_feedback(
@@ -297,7 +314,9 @@ class AdvancedDailyReportGenerator:
             lines.append(f"> {summary}")
         else:
             if recovery_result:
-                lines.append(f"> 恢复{recovery_result.status}（{recovery_result.score}/100），{recovery_result.summary}")
+                lines.append(
+                    f"> 恢复{recovery_result.status}（{recovery_result.score}/100），{recovery_result.summary}"
+                )
         lines.append("")
         lines.append("")
 
@@ -332,7 +351,9 @@ class AdvancedDailyReportGenerator:
             busy_level = cs.get("busy_level", "low")
             level_labels = {"low": "低", "medium": "中", "high": "高"}
             busy_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}
-            cal_parts = [f"{busy_emoji.get(busy_level, '')} 忙碌等级：{level_labels.get(busy_level, busy_level)}"]
+            cal_parts = [
+                f"{busy_emoji.get(busy_level, '')} 忙碌等级：{level_labels.get(busy_level, busy_level)}"
+            ]
             if event_count > 0:
                 cal_parts.append(f"{event_count} 个日程")
                 cal_parts.append(f"总计 {total_min // 60}h{total_min % 60}m")
@@ -350,13 +371,13 @@ class AdvancedDailyReportGenerator:
         lines.append("")
         for result in assessment_results:
             model_label = next(
-                (m.reason for m in selected_models if m.name == result.model_name),
-                ""
+                (m.reason for m in selected_models if m.name == result.model_name), ""
             )
-            selected_tag = f" [选中：{model_label}]" if model_label and model_label not in ("所有人",) else ""
+            selected_tag = (
+                f" [选中：{model_label}]" if model_label and model_label not in ("所有人",) else ""
+            )
             lines.append(
-                f"- **{result.label}**: {result.score}/100（{result.status}）"
-                f"{selected_tag}"
+                f"- **{result.label}**: {result.score}/100（{result.status}）{selected_tag}"
             )
         lines.append("")
 
@@ -415,13 +436,16 @@ class AdvancedDailyReportGenerator:
                 lines.append(f"- ⚠️ {alert}")
             lines.append("")
 
-
         # === 数据摘要（一行）===
         data_parts = []
         sleep_min = garmin.get("sleep_total_min")
         sleep_score_v = garmin.get("sleep_score")
         if sleep_min:
-            data_parts.append(f"睡眠 {sleep_min // 60}h{sleep_min % 60}m/{sleep_score_v:.0f}分" if sleep_score_v else f"睡眠 {sleep_min // 60}h{sleep_min % 60}m")
+            data_parts.append(
+                f"睡眠 {sleep_min // 60}h{sleep_min % 60}m/{sleep_score_v:.0f}分"
+                if sleep_score_v
+                else f"睡眠 {sleep_min // 60}h{sleep_min % 60}m"
+            )
         hrv = garmin.get("hrv_avg")
         hrv_status_v = garmin.get("hrv_status")
         if hrv:
@@ -433,7 +457,9 @@ class AdvancedDailyReportGenerator:
         if bb:
             data_parts.append(f"BB {bb:.0f}")
         if vitals_stats.latest_systolic and vitals_stats.latest_diastolic:
-            data_parts.append(f"血压 {vitals_stats.latest_systolic}/{vitals_stats.latest_diastolic}mmHg")
+            data_parts.append(
+                f"血压 {vitals_stats.latest_systolic}/{vitals_stats.latest_diastolic}mmHg"
+            )
         if vitals_stats.latest_weight:
             data_parts.append(f"体重 {vitals_stats.latest_weight:.1f}kg")
         if data_parts:
@@ -471,7 +497,11 @@ def main():
     ap = argparse.ArgumentParser(description="生成高级健康日报（Phase 4）")
     ap.add_argument("--date", type=str, help="日期 (YYYY-MM-DD)，默认今天")
     ap.add_argument("--no-save", action="store_true", help="不保存文件，仅打印")
-    ap.add_argument("--test-mode", action="store_true", help="测试模式：不写入 recommendation_feedback，保存到 -test.md")
+    ap.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="测试模式：不写入 recommendation_feedback，保存到 -test.md",
+    )
     args = ap.parse_args()
 
     day_str = args.date or date.today().isoformat()

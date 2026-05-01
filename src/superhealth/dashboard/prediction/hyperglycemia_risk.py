@@ -25,13 +25,12 @@ from superhealth.dashboard.data_loader import (
     load_vitals,
 )
 
-
 # ─── 血糖分级 ────────────────────────────────────────────────────────
 
-GLU_NORMAL = 0          # FBG <6.1 且 HbA1c <5.7%
-GLU_PREDIABETES_IFG = 1 # 空腹血糖受损：FBG 6.1-7.0
+GLU_NORMAL = 0  # FBG <6.1 且 HbA1c <5.7%
+GLU_PREDIABETES_IFG = 1  # 空腹血糖受损：FBG 6.1-7.0
 GLU_PREDIABETES_HBA1C = 2  # HbA1c 偏高：5.7-6.5%
-GLU_DIABETES = 3        # FBG ≥7.0 或 HbA1c ≥6.5%
+GLU_DIABETES = 3  # FBG ≥7.0 或 HbA1c ≥6.5%
 
 GLU_LABELS = {
     GLU_NORMAL: "正常",
@@ -68,6 +67,7 @@ def _glucose_grade(fbg: Optional[float], hba1c: Optional[float]) -> int:
 
 # ─── 从体检表获取最新血糖 ────────────────────────────────────────────
 
+
 def _get_latest_glucose() -> tuple[Optional[float], Optional[float]]:
     """从 annual_checkups 获取最新空腹血糖和 HbA1c。"""
     df = load_annual_checkups()
@@ -96,6 +96,7 @@ def _get_glucose_trend() -> tuple[Optional[float], Optional[str]]:
 
 
 # ─── 糖尿病危险因素 ──────────────────────────────────────────────────
+
 
 def _check_age_risk(profile: dict) -> tuple[bool, str]:
     """年龄 ≥40 岁。"""
@@ -190,6 +191,7 @@ def _check_high_fbg_history() -> tuple[bool, str]:
 
 # ─── 代谢综合征评估 ──────────────────────────────────────────────────
 
+
 def _check_metabolic_syndrome(
     fbg: Optional[float],
     df_vitals: pd.DataFrame,
@@ -215,7 +217,9 @@ def _check_metabolic_syndrome(
                 components.append(f"BMI {bmi_val:.1f}≥24")
 
     if not df_lab.empty:
-        tg = df_lab[df_lab["item_name"].str.contains("甘油三酯|TG|Triglyceride", case=False, na=False)]
+        tg = df_lab[
+            df_lab["item_name"].str.contains("甘油三酯|TG|Triglyceride", case=False, na=False)
+        ]
         if not tg.empty and float(tg["value"].iloc[-1]) > 1.7:
             components.append(f"TG {float(tg['value'].iloc[-1]):.2f}>1.7")
         hdl = df_lab[df_lab["item_name"].str.contains("高密度|HDL", case=False, na=False)]
@@ -298,6 +302,7 @@ def _risk_to_score(risk_level: str, fbg: Optional[float], hba1c: Optional[float]
 
 # ─── 主计算函数 ──────────────────────────────────────────────────────
 
+
 def compute(days: int = 90) -> dict:
     """基于中国2型糖尿病防治指南计算高血糖风险分层。"""
     profile = get_user_profile()
@@ -324,7 +329,10 @@ def compute(days: int = 90) -> dict:
 
     # ── 代谢综合征 ────────────────────────────────────────────────
     has_met_syn, met_syn_count, met_syn_items = _check_metabolic_syndrome(
-        fbg, df_vitals, profile, df_lab,
+        fbg,
+        df_vitals,
+        profile,
+        df_lab,
     )
 
     # ── 风险分层 ──────────────────────────────────────────────────

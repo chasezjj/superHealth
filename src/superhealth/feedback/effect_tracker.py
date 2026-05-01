@@ -24,11 +24,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
 from typing import Optional
-import math
 
 from superhealth import database as db
 from superhealth.collectors.outlook_collector import _build_summary
@@ -39,8 +39,18 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
 # 用户反馈中的干扰关键词（运动效果评估时应排除负向信号）
 CONTAMINATION_KEYWORDS = [
-    "演讲", "紧张", "加班", "出差", "deadline", "应酬",
-    "失眠", "喝酒", "熬夜", "会议", "压力大", "焦虑",
+    "演讲",
+    "紧张",
+    "加班",
+    "出差",
+    "deadline",
+    "应酬",
+    "失眠",
+    "喝酒",
+    "熬夜",
+    "会议",
+    "压力大",
+    "焦虑",
 ]
 
 # 日间指标：早上7点运行时，run_date（今天）的数据尚未完整，需要过滤
@@ -102,7 +112,7 @@ class EffectTracker:
                           bb_at_wake          AS body_battery_wake,
                           hr_resting          AS resting_hr
                    FROM daily_health WHERE date = ?""",
-                (day_str,)
+                (day_str,),
             ).fetchone()
             return dict(row) if row else None
 
@@ -120,7 +130,7 @@ class EffectTracker:
                        hr_resting          AS resting_hr
                 FROM daily_health
                 WHERE date IN ({placeholders})""",
-            dates
+            dates,
         ).fetchall()
         return {r["date"]: dict(r) for r in rows}
 
@@ -148,10 +158,7 @@ class EffectTracker:
         if valid_days < 2:
             return None
 
-        return {
-            m: mean(vals) if vals else None
-            for m, vals in samples.items()
-        }
+        return {m: mean(vals) if vals else None for m, vals in samples.items()}
 
     def _compute_global_stds(self, conn) -> dict[str, float]:
         """计算全量 daily_health 各指标的标准差，用于标准化配对距离。"""
@@ -180,7 +187,7 @@ class EffectTracker:
                        bb_at_wake          AS body_battery_wake
                 FROM daily_health
                 WHERE date >= ?""",
-            (since,)
+            (since,),
         ).fetchall()
         result = {}
         for key in self.TRACKED_METRICS:
@@ -398,7 +405,9 @@ class EffectTracker:
                 cand["date"] = cand.pop("date")
                 cand_schedule = schedule_cache.get(cand["date"])
                 sim = self._day_similarity(
-                    pre_metrics, cand, stds,
+                    pre_metrics,
+                    cand,
+                    stds,
                     target_schedule=target_schedule,
                     candidate_schedule=cand_schedule,
                 )
@@ -423,12 +432,14 @@ class EffectTracker:
                     ctrl_post[f"day+{i}"] = m
 
             if len(ctrl_post) >= 1:
-                controls.append({
-                    "control_date": ctrl_date,
-                    "similarity": round(sim, 3),
-                    "baseline": ctrl_baseline,
-                    "post": ctrl_post,
-                })
+                controls.append(
+                    {
+                        "control_date": ctrl_date,
+                        "similarity": round(sim, 3),
+                        "baseline": ctrl_baseline,
+                        "post": ctrl_post,
+                    }
+                )
 
         return controls
 
@@ -623,8 +634,7 @@ class EffectTracker:
                         if cb is not None and cm is not None:
                             tmp_changes[m].append(cm - cb)
             control_avg_changes = {
-                m: round(mean(vals), 2) if vals else 0.0
-                for m, vals in tmp_changes.items()
+                m: round(mean(vals), 2) if vals else 0.0 for m, vals in tmp_changes.items()
             }
 
         baseline_type = "matched_control" if net_effect_available else original_baseline_type
@@ -655,7 +665,9 @@ class EffectTracker:
                         p = metrics.get(m)
                         if b is not None and p is not None:
                             net = (p - b) - control_avg_changes.get(m, 0.0)
-                            if (is_upper and net > neg_thresh) or (not is_upper and net < neg_thresh):
+                            if (is_upper and net > neg_thresh) or (
+                                not is_upper and net < neg_thresh
+                            ):
                                 has_net_negative = True
                                 break
                     if not has_net_negative:
@@ -705,7 +717,9 @@ class EffectTracker:
 
             if positive_thresh > 0 and change > positive_thresh:
                 positive_signals += 1
-                details_by_day[day_key].append(f"{day_key}: {positive_label}{label} {change:+.0f}{suffix}（恢复良好）")
+                details_by_day[day_key].append(
+                    f"{day_key}: {positive_label}{label} {change:+.0f}{suffix}（恢复良好）"
+                )
             elif negative_thresh < 0 and change < negative_thresh:
                 if is_contaminated:
                     skipped_negative += 1
@@ -714,7 +728,9 @@ class EffectTracker:
                     )
                 else:
                     negative_signals += 1
-                    details_by_day[day_key].append(f"{day_key}: {negative_label}{label} {change:+.0f}{suffix}（恢复不佳）")
+                    details_by_day[day_key].append(
+                        f"{day_key}: {negative_label}{label} {change:+.0f}{suffix}（恢复不佳）"
+                    )
 
         for day_key, metrics in post_data.items():
             is_contaminated = day_key in contaminated
@@ -723,21 +739,29 @@ class EffectTracker:
             # HRV
             if baseline.get("hrv_avg") and metrics.get("hrv_avg"):
                 _eval_signal(
-                    day_key, "hrv_avg",
+                    day_key,
+                    "hrv_avg",
                     metrics["hrv_avg"] - baseline["hrv_avg"],
-                    3, -5,
-                    "HRV", "HRV",
-                    is_contaminated, contam_reason,
+                    3,
+                    -5,
+                    "HRV",
+                    "HRV",
+                    is_contaminated,
+                    contam_reason,
                 )
 
             # 睡眠
             if baseline.get("sleep_score") and metrics.get("sleep_score"):
                 _eval_signal(
-                    day_key, "sleep_score",
+                    day_key,
+                    "sleep_score",
                     metrics["sleep_score"] - baseline["sleep_score"],
-                    5, -5,
-                    "睡眠", "睡眠",
-                    is_contaminated, contam_reason,
+                    5,
+                    -5,
+                    "睡眠",
+                    "睡眠",
+                    is_contaminated,
+                    contam_reason,
                 )
 
             # 静息心率（降低=正面）
@@ -746,10 +770,16 @@ class EffectTracker:
                 net = raw - control_avg_changes.get("resting_hr", 0.0)
                 change = net if net_effect_available else raw
                 label = "净" if net_effect_available else ""
-                suffix = f"(raw={raw:+.0f}, ctrl={control_avg_changes['resting_hr']:+.1f}, net={net:+.0f})" if net_effect_available else ""
+                suffix = (
+                    f"(raw={raw:+.0f}, ctrl={control_avg_changes['resting_hr']:+.1f}, net={net:+.0f})"
+                    if net_effect_available
+                    else ""
+                )
                 if change < -2:
                     positive_signals += 1
-                    details_by_day[day_key].append(f"{day_key}: 静息心率下降{label} {abs(change):.0f}bpm{suffix}（恢复良好）")
+                    details_by_day[day_key].append(
+                        f"{day_key}: 静息心率下降{label} {abs(change):.0f}bpm{suffix}（恢复良好）"
+                    )
                 elif change > 3:
                     if is_contaminated:
                         skipped_negative += 1
@@ -758,7 +788,9 @@ class EffectTracker:
                         )
                     else:
                         negative_signals += 1
-                        details_by_day[day_key].append(f"{day_key}: 静息心率升高{label} +{change:.0f}bpm{suffix}（恢复不佳）")
+                        details_by_day[day_key].append(
+                            f"{day_key}: 静息心率升高{label} +{change:.0f}bpm{suffix}（恢复不佳）"
+                        )
 
             # Body Battery
             if baseline.get("body_battery_wake") and metrics.get("body_battery_wake"):
@@ -766,10 +798,16 @@ class EffectTracker:
                 net = raw - control_avg_changes.get("body_battery_wake", 0.0)
                 change = net if net_effect_available else raw
                 label = "净" if net_effect_available else ""
-                suffix = f"(raw={raw:+.0f}, ctrl={control_avg_changes['body_battery_wake']:+.1f}, net={net:+.0f})" if net_effect_available else ""
+                suffix = (
+                    f"(raw={raw:+.0f}, ctrl={control_avg_changes['body_battery_wake']:+.1f}, net={net:+.0f})"
+                    if net_effect_available
+                    else ""
+                )
                 if change > 5:
                     positive_signals += 1
-                    details_by_day[day_key].append(f"{day_key}: 起床 Body Battery +{label}{change:.0f}{suffix}（恢复良好）")
+                    details_by_day[day_key].append(
+                        f"{day_key}: 起床 Body Battery +{label}{change:.0f}{suffix}（恢复良好）"
+                    )
                 elif change < -5:
                     if is_contaminated:
                         skipped_negative += 1
@@ -778,7 +816,9 @@ class EffectTracker:
                         )
                     else:
                         negative_signals += 1
-                        details_by_day[day_key].append(f"{day_key}: 起床 Body Battery {label}{change:.0f}{suffix}（恢复不佳）")
+                        details_by_day[day_key].append(
+                            f"{day_key}: 起床 Body Battery {label}{change:.0f}{suffix}（恢复不佳）"
+                        )
 
             # 压力变化（仅 day+2 对比 day+1 vs baseline）
             # 逻辑上在 day+2 循环里执行（确保 day+1 数据完整），但展示归属 day+1
@@ -786,19 +826,27 @@ class EffectTracker:
                 day1_metrics = post_data.get("day+1")
                 day1_date = day1_metrics.get("date") if day1_metrics else None
                 if day1_date and day1_date >= run_date:
-                    details_by_day["day+1"].append("day+1: 压力数据尚未完整（run_date限制），跳过压力对比")
+                    details_by_day["day+1"].append(
+                        "day+1: 压力数据尚未完整（run_date限制），跳过压力对比"
+                    )
                     continue
                 if baseline.get("avg_stress") and day1_metrics and day1_metrics.get("avg_stress"):
                     raw = day1_metrics["avg_stress"] - baseline["avg_stress"]
                     net = raw - control_avg_changes.get("avg_stress", 0.0)
                     change = net if net_effect_available else raw
                     label = "净" if net_effect_available else ""
-                    suffix = f"(raw={raw:+.0f}, ctrl={control_avg_changes['avg_stress']:+.1f}, net={net:+.0f})" if net_effect_available else ""
+                    suffix = (
+                        f"(raw={raw:+.0f}, ctrl={control_avg_changes['avg_stress']:+.1f}, net={net:+.0f})"
+                        if net_effect_available
+                        else ""
+                    )
                     day1_contaminated = "day+1" in contaminated
                     day1_reason = contaminated.get("day+1", "")
                     if change < -5:
                         positive_signals += 1
-                        details_by_day["day+1"].append(f"day+1: 压力下降{label} {abs(change):.0f}{suffix}（恢复良好）")
+                        details_by_day["day+1"].append(
+                            f"day+1: 压力下降{label} {abs(change):.0f}{suffix}（恢复良好）"
+                        )
                     elif change > 5:
                         if day1_contaminated:
                             skipped_negative += 1
@@ -807,7 +855,9 @@ class EffectTracker:
                             )
                         else:
                             negative_signals += 1
-                            details_by_day["day+1"].append(f"day+1: 压力升高{label} +{change:.0f}{suffix}（恢复不佳）")
+                            details_by_day["day+1"].append(
+                                f"day+1: 压力升高{label} +{change:.0f}{suffix}（恢复不佳）"
+                            )
 
         # 为有数据但无显著信号的 day 添加占位记录，方便排查（格式与有信号时统一：raw/ctrl/net）
         for day_key, metrics in post_data.items():
@@ -914,7 +964,7 @@ class EffectTracker:
                        WHERE date BETWEEN ? AND ?
                          AND recommendation_type = 'exercise'
                        ORDER BY date""",
-                    (start, end)
+                    (start, end),
                 ).fetchall()
 
                 if not rows:
@@ -966,7 +1016,8 @@ class EffectTracker:
 
         # 先筛选有效结果
         candidates = [
-            r for r in results
+            r
+            for r in results
             if r.get("exercise_date")
             and r.get("assessment") != "no_data"
             and (only_date is None or r["exercise_date"] == only_date)
@@ -1005,15 +1056,20 @@ class EffectTracker:
                         """UPDATE recommendation_feedback
                            SET tracked_metrics = ?
                            WHERE date = ? AND recommendation_type = 'exercise'""",
-                        (tracked_json, result["exercise_date"])
+                        (tracked_json, result["exercise_date"]),
                     )
                 if to_write:
-                    log.info("写回追踪指标 %d 条（锁定 %d 条）", len(to_write), len(candidates) - len(to_write))
+                    log.info(
+                        "写回追踪指标 %d 条（锁定 %d 条）",
+                        len(to_write),
+                        len(candidates) - len(to_write),
+                    )
         except Exception as e:
             log.error("批量写回追踪指标失败: %s", e)
 
-    def compute_goal_aligned_score(self, tracked_metrics: dict,
-                                    goals: list[dict]) -> Optional[float]:
+    def compute_goal_aligned_score(
+        self, tracked_metrics: dict, goals: list[dict]
+    ) -> Optional[float]:
         """计算目标感知的综合效果评分。
 
         将目标指标对应的 TRACKED_METRICS 权重提高 GOAL_WEIGHT_BOOST 倍，

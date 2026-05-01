@@ -35,9 +35,9 @@ class CalendarSummary:
     event_count: int = 0
     total_meeting_min: int = 0
     first_event_start: str | None = None  # "HH:MM"
-    last_event_end: str | None = None     # "HH:MM"
-    busiest_period: str | None = None     # 如 "09:00-12:00"
-    back_to_back_count: int = 0           # 连续会议组数（重叠或间隔≤15min的连续块算1组）
+    last_event_end: str | None = None  # "HH:MM"
+    busiest_period: str | None = None  # 如 "09:00-12:00"
+    back_to_back_count: int = 0  # 连续会议组数（重叠或间隔≤15min的连续块算1组）
     has_all_day: bool = False
     events: list[dict] = field(default_factory=list)
 
@@ -217,8 +217,9 @@ def _build_summary(date_str: str, events: list[dict]) -> CalendarSummary:
 def _fetch_from_exchange(date_str: str, cfg) -> list[dict]:
     """连接 Exchange 服务器拉取指定日期的日历事件。"""
     try:
-        from exchangelib import Credentials, Account
         from zoneinfo import ZoneInfo
+
+        from exchangelib import Account, Credentials
     except ImportError:
         raise ImportError("需要 exchangelib：pip install exchangelib")
 
@@ -258,16 +259,18 @@ def _fetch_from_exchange(date_str: str, cfg) -> list[dict]:
         e = item.end.astimezone(tz) if item.end and hasattr(item.end, "astimezone") else None
 
         if item.is_all_day or (s is None and item.start):
-            events.append({
-                "subject": item.subject or "(无标题)",
-                "start_time": None,
-                "end_time": None,
-                "duration_min": 0,
-                "is_all_day": 1,
-                "location": item.location or "",
-                "organizer": str(item.organizer) if item.organizer else "",
-                "is_recurring": 1 if hasattr(item, "is_recurring") and item.is_recurring else 0,
-            })
+            events.append(
+                {
+                    "subject": item.subject or "(无标题)",
+                    "start_time": None,
+                    "end_time": None,
+                    "duration_min": 0,
+                    "is_all_day": 1,
+                    "location": item.location or "",
+                    "organizer": str(item.organizer) if item.organizer else "",
+                    "is_recurring": 1 if hasattr(item, "is_recurring") and item.is_recurring else 0,
+                }
+            )
         elif s and e:
             # 截断到查询当天的有效区间，避免跨天事件被误算为当天 22:00~24:00
             effective_s = max(s, start)
@@ -275,16 +278,18 @@ def _fetch_from_exchange(date_str: str, cfg) -> list[dict]:
             if effective_s >= effective_e:
                 continue
             duration_min = int((effective_e - effective_s).total_seconds() / 60)
-            events.append({
-                "subject": item.subject or "(无标题)",
-                "start_time": effective_s.strftime("%H:%M"),
-                "end_time": effective_e.strftime("%H:%M"),
-                "duration_min": duration_min,
-                "is_all_day": 0,
-                "location": item.location or "",
-                "organizer": str(item.organizer) if item.organizer else "",
-                "is_recurring": 1 if hasattr(item, "is_recurring") and item.is_recurring else 0,
-            })
+            events.append(
+                {
+                    "subject": item.subject or "(无标题)",
+                    "start_time": effective_s.strftime("%H:%M"),
+                    "end_time": effective_e.strftime("%H:%M"),
+                    "duration_min": duration_min,
+                    "is_all_day": 0,
+                    "location": item.location or "",
+                    "organizer": str(item.organizer) if item.organizer else "",
+                    "is_recurring": 1 if hasattr(item, "is_recurring") and item.is_recurring else 0,
+                }
+            )
 
     # 去重：相同主题+开始时间+结束时间的会议（防止邮件组重复邀请导致同一会议出现两次）
     seen = set()
@@ -298,7 +303,10 @@ def _fetch_from_exchange(date_str: str, cfg) -> list[dict]:
     if skipped or len(unique_events) != len(events):
         log.info(
             "Exchange 原始 %d 条，跳过 %d 条，去重 %d 条，最终 %d 条",
-            len(events) + skipped, skipped, len(events) - len(unique_events), len(unique_events),
+            len(events) + skipped,
+            skipped,
+            len(events) - len(unique_events),
+            len(unique_events),
         )
 
     return unique_events
@@ -312,7 +320,6 @@ def fetch_calendar(date_str: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[C
     - 明天及以后：始终从 Exchange 重新拉取（未来日程可能随时变动）
     - 无缓存/配置不完整/连接失败时返回 None（降级）
     """
-    from datetime import date
 
     target_day = date.fromisoformat(date_str)
     is_past_or_today = target_day <= date.today()

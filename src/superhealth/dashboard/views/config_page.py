@@ -24,10 +24,10 @@ from superhealth.config import (
     save_config,
 )
 
-
 # ---------------------------------------------------------------------------
 # Crontab helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_crontab() -> str:
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
@@ -58,6 +58,7 @@ def _save_crontab(content: str) -> None:
 # Page render
 # ---------------------------------------------------------------------------
 
+
 def render() -> None:
     st.title("系统配置")
 
@@ -87,12 +88,8 @@ def render() -> None:
         wechat_account = c1.text_input(
             "Account ID", value=config.wechat.account_id, key="cfg_wx_acc"
         )
-        wechat_channel = c2.text_input(
-            "Channel", value=config.wechat.channel, key="cfg_wx_ch"
-        )
-        wechat_target = c3.text_input(
-            "Target", value=config.wechat.target, key="cfg_wx_tgt"
-        )
+        wechat_channel = c2.text_input("Channel", value=config.wechat.channel, key="cfg_wx_ch")
+        wechat_target = c3.text_input("Target", value=config.wechat.target, key="cfg_wx_tgt")
 
     # Vitals
     with st.expander("Health Auto Export"):
@@ -103,9 +100,7 @@ def render() -> None:
             type="password",
             key="cfg_vitals_token",
         )
-        vitals_host = c2.text_input(
-            "Host", value=config.vitals.host, key="cfg_vitals_host"
-        )
+        vitals_host = c2.text_input("Host", value=config.vitals.host, key="cfg_vitals_host")
         vitals_port = c3.number_input(
             "Port",
             value=config.vitals.port,
@@ -123,9 +118,7 @@ def render() -> None:
             type="password",
             key="cfg_claude_key",
         )
-        claude_model = c2.text_input(
-            "Model", value=config.claude.model, key="cfg_claude_model"
-        )
+        claude_model = c2.text_input("Model", value=config.claude.model, key="cfg_claude_model")
         c3, c4 = st.columns(2)
         claude_max_tokens = c3.number_input(
             "Max Tokens",
@@ -148,9 +141,7 @@ def render() -> None:
             type="password",
             key="cfg_bc_key",
         )
-        bc_model = c2.text_input(
-            "Model", value=config.baichuan.model, key="cfg_bc_model"
-        )
+        bc_model = c2.text_input("Model", value=config.baichuan.model, key="cfg_bc_model")
         c3, c4 = st.columns(2)
         bc_max_tokens = c3.number_input(
             "Max Tokens",
@@ -158,18 +149,14 @@ def render() -> None:
             min_value=1,
             key="cfg_bc_mt",
         )
-        bc_base_url = c4.text_input(
-            "Base URL", value=config.baichuan.base_url, key="cfg_bc_url"
-        )
+        bc_base_url = c4.text_input("Base URL", value=config.baichuan.base_url, key="cfg_bc_url")
 
     # Advisor
     with st.expander("建议引擎"):
         advisor_mode = st.selectbox(
             "模式",
             options=["claude_only", "baichuan_only", "both"],
-            index=["claude_only", "baichuan_only", "both"].index(
-                config.advisor.mode
-            ),
+            index=["claude_only", "baichuan_only", "both"].index(config.advisor.mode),
             key="cfg_advisor_mode",
         )
 
@@ -182,9 +169,7 @@ def render() -> None:
             type="password",
             key="cfg_wx_key",
         )
-        weather_city = c2.text_input(
-            "城市", value=config.weather.city, key="cfg_wx_city"
-        )
+        weather_city = c2.text_input("城市", value=config.weather.city, key="cfg_wx_city")
         weather_loc = c3.text_input(
             "Location ID",
             value=config.weather.location_id,
@@ -221,12 +206,8 @@ def render() -> None:
     # Outlook
     with st.expander("Outlook / Exchange"):
         c1, c2 = st.columns(2)
-        outlook_user = c1.text_input(
-            "用户名", value=config.outlook.username, key="cfg_ol_user"
-        )
-        outlook_email = c2.text_input(
-            "邮箱", value=config.outlook.email, key="cfg_ol_email"
-        )
+        outlook_user = c1.text_input("用户名", value=config.outlook.username, key="cfg_ol_user")
+        outlook_email = c2.text_input("邮箱", value=config.outlook.email, key="cfg_ol_email")
         c3, c4 = st.columns(2)
         outlook_pwd = c3.text_input(
             "密码",
@@ -234,9 +215,7 @@ def render() -> None:
             type="password",
             key="cfg_ol_pwd",
         )
-        outlook_tz = c4.text_input(
-            "时区", value=config.outlook.timezone, key="cfg_ol_tz"
-        )
+        outlook_tz = c4.text_input("时区", value=config.outlook.timezone, key="cfg_ol_tz")
 
     # ========================================================================
     # B. Crontab — only Healthy jobs
@@ -290,9 +269,7 @@ def render() -> None:
         )
         if st.button("添加此任务", key="btn_add_cron"):
             pending = st.session_state.get("pending_cron_jobs", [])
-            pending.append(
-                f"{new_m} {new_h} {new_dom} {new_mon} {new_dow} {new_cmd}"
-            )
+            pending.append(f"{new_m} {new_h} {new_dom} {new_mon} {new_dow} {new_cmd}")
             st.session_state["pending_cron_jobs"] = pending
             st.rerun()
 
@@ -314,9 +291,7 @@ def render() -> None:
     st.divider()
     if st.button("保存配置", type="primary", key="btn_save_cfg"):
         new_config = AppConfig(
-            garmin=GarminConfig(
-                email=garmin_email, password=garmin_password
-            ),
+            garmin=GarminConfig(email=garmin_email, password=garmin_password),
             wechat=WechatConfig(
                 account_id=wechat_account,
                 channel=wechat_channel,

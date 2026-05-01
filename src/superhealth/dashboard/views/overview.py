@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 
 import streamlit as st
 
@@ -68,9 +68,19 @@ def render():
         if bb_col in df_7d.columns:
             avg_bb = df_7d[bb_col].dropna().mean()
         avg_rhr = df_7d["hr_resting"].dropna().mean() if "hr_resting" in df_7d.columns else None
-        avg_hrv = df_7d["hrv_last_night_avg"].dropna().mean() if "hrv_last_night_avg" in df_7d.columns else None
-        avg_sleep = df_7d["sleep_total_seconds"].dropna().mean() / 3600 if "sleep_total_seconds" in df_7d.columns else None
-        avg_stress = df_7d["stress_average"].dropna().mean() if "stress_average" in df_7d.columns else None
+        avg_hrv = (
+            df_7d["hrv_last_night_avg"].dropna().mean()
+            if "hrv_last_night_avg" in df_7d.columns
+            else None
+        )
+        avg_sleep = (
+            df_7d["sleep_total_seconds"].dropna().mean() / 3600
+            if "sleep_total_seconds" in df_7d.columns
+            else None
+        )
+        avg_stress = (
+            df_7d["stress_average"].dropna().mean() if "stress_average" in df_7d.columns else None
+        )
 
     if not df_90d.empty:
         if bb_col in df_90d.columns:
@@ -103,7 +113,13 @@ def render():
         if val is None or base is None or not std:
             return ""
         z = (val - base) / std
-        emoji = "🟢" if (z > 0 and higher_is_better) or (z < 0 and not higher_is_better) else "🔴" if abs(z) >= 0.5 else "⚪"
+        emoji = (
+            "🟢"
+            if (z > 0 and higher_is_better) or (z < 0 and not higher_is_better)
+            else "🔴"
+            if abs(z) >= 0.5
+            else "⚪"
+        )
         return f"{emoji} 基线 {base:.0f}±{std:.0f}{unit} ({z:+.1f}σ)"
 
     with c1:
@@ -158,9 +174,7 @@ def render():
     if appts:
         st.subheader("即将到来的就医提醒")
         for a in appts:
-            days_left = (
-                date.fromisoformat(str(a["due_date"])[:10]) - date.today()
-            ).days
+            days_left = (date.fromisoformat(str(a["due_date"])[:10]) - date.today()).days
             label = "🔴" if days_left <= 7 else "🟡"
             st.warning(
                 f"{label} **{a['condition']}**  —  {a.get('hospital', '')} "

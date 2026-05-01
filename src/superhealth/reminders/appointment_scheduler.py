@@ -16,7 +16,7 @@ from typing import Optional
 
 from dateutil.relativedelta import relativedelta
 
-from superhealth.database import DEFAULT_DB_PATH, get_conn, upsert_appointment
+from superhealth.database import get_conn, upsert_appointment
 from superhealth.reminders.reminder_config import REMINDER_RULES, ReminderRule
 
 

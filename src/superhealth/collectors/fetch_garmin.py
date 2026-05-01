@@ -27,24 +27,33 @@ from pathlib import Path
 
 import requests
 
-from superhealth.models import (
-    DailyHealth, SleepData, StressData, HeartRateData, BodyBatteryData,
-    SpO2Data, RespirationData, ActivityData, HRVData, Exercise,
-)
 from superhealth import database as db
+from superhealth.models import (
+    ActivityData,
+    BodyBatteryData,
+    DailyHealth,
+    Exercise,
+    HeartRateData,
+    HRVData,
+    RespirationData,
+    SleepData,
+    SpO2Data,
+    StressData,
+)
 
 log = logging.getLogger(__name__)
 
 
 def _normalize_activity_name(name: str) -> str:
     """清洗 Garmin activityName：去除地域前缀，统一繁体字。"""
-    name = re.sub(r'^.+?区\s*-\s*', '', name)
-    name = re.sub(r'^.+?区\s+', '', name)
-    name = name.replace('跑步機', '跑步机')
+    name = re.sub(r"^.+?区\s*-\s*", "", name)
+    name = re.sub(r"^.+?区\s+", "", name)
+    name = name.replace("跑步機", "跑步机")
     return name
 
-_PKG_DIR = Path(__file__).parent.parent    # src/healthy/
-BASE_DIR = _PKG_DIR.parent.parent         # healthy/ (project root)
+
+_PKG_DIR = Path(__file__).parent.parent  # src/healthy/
+BASE_DIR = _PKG_DIR.parent.parent  # healthy/ (project root)
 OUTPUT_DIR = BASE_DIR / "activity-data"
 SESSION_FILE = Path.home() / ".garmin_cn_session.json"
 _LEGACY_CONFIG_FILE = Path.home() / ".garmin_cn_config.json"  # 旧格式，向后兼容
@@ -55,6 +64,7 @@ API_BASE = f"{CONNECT_BASE}/gc-api"
 
 
 # ─── 认证 ──────────────────────────────────────────────────────────
+
 
 def _login_via_playwright(email, password):
     """通过 Playwright 浏览器自动化登录 Garmin Connect CN。
@@ -72,7 +82,7 @@ def _login_via_playwright(email, password):
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         )
         page = context.new_page()
 
@@ -125,7 +135,9 @@ def _login_via_playwright(email, password):
 
         # 访问 daily-summary 以获取 user_id
         if not user_id:
-            page.goto(f"{CONNECT_BASE}/modern/daily-summary", wait_until="networkidle", timeout=30000)
+            page.goto(
+                f"{CONNECT_BASE}/modern/daily-summary", wait_until="networkidle", timeout=30000
+            )
             page.wait_for_timeout(3000)
 
         cookies = context.cookies()
@@ -158,23 +170,27 @@ def _load_session():
 
     data = json.loads(SESSION_FILE.read_text())
     session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "NK": "NT",
-        "X-Requested-With": "XMLHttpRequest",
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "connect-csrf-token": data["csrf_token"],
-        "X-App-Ver": "5.22.0.21d",
-        "X-Lang": "zh-CN",
-    })
+    session.headers.update(
+        {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "NK": "NT",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "connect-csrf-token": data["csrf_token"],
+            "X-App-Ver": "5.22.0.21d",
+            "X-Lang": "zh-CN",
+        }
+    )
     for c in data["cookies"]:
         session.cookies.set(c["name"], c["value"], domain=c["domain"], path=c["path"])
     return session, data.get("user_id", "")
 
 
 def _is_expired(r):
-    return r.status_code in (401, 403) or (r.status_code == 200 and "text/html" in r.headers.get("content-type", ""))
+    return r.status_code in (401, 403) or (
+        r.status_code == 200 and "text/html" in r.headers.get("content-type", "")
+    )
 
 
 def _api_get(session, path, params=None):
@@ -195,7 +211,8 @@ def _api_get(session, path, params=None):
 
 def _save_config(email: str, password: str) -> None:
     """保存账号密码到 ~/.healthy/config.toml。"""
-    from superhealth.config import save_garmin, CONFIG_PATH
+    from superhealth.config import CONFIG_PATH, save_garmin
+
     save_garmin(email, password)
     log.info("账号密码已保存到 %s", CONFIG_PATH)
 
@@ -203,6 +220,7 @@ def _save_config(email: str, password: str) -> None:
 def _load_config() -> tuple[str | None, str | None]:
     """从 ~/.healthy/config.toml 加载账号密码；向后兼容旧 JSON 文件。"""
     from superhealth.config import load as load_cfg
+
     conf = load_cfg()
     if conf.garmin.is_complete():
         return conf.garmin.email, conf.garmin.password
@@ -228,6 +246,7 @@ def login_interactive():
     """交互式登录并保存 session 和凭据。"""
     email = input("Garmin Connect 账号 (手机号/邮箱): ")
     from getpass import getpass
+
     password = getpass("密码: ")
     cookies, csrf, user_id = _login_via_playwright(email, password)
     _save_session(cookies, csrf, user_id)
@@ -242,6 +261,7 @@ def login_with_credentials(email, password):
 
 
 # ─── 工具函数 ──────────────────────────────────────────────────────
+
 
 def fmt_dur(seconds):
     """格式化秒为 Xh XXm 格式。"""
@@ -268,9 +288,12 @@ def sg(data, *keys, default="N/A"):
 
 # ─── 数据获取 → Pydantic 模型 ─────────────────────────────────────
 
+
 def fetch_sleep_data(session, day: str) -> SleepData:
     try:
-        data = _api_get(session, f"sleep-service/sleep/dailySleepData?date={day}&nonSleepBufferMinutes=60")
+        data = _api_get(
+            session, f"sleep-service/sleep/dailySleepData?date={day}&nonSleepBufferMinutes=60"
+        )
     except Exception as e:
         log.warning("睡眠数据获取失败: %s", e)
         return SleepData()
@@ -280,12 +303,12 @@ def fetch_sleep_data(session, day: str) -> SleepData:
         return SleepData()
 
     return SleepData(
-        total_seconds=sg(dto, 'sleepTimeSeconds', default=None),
-        deep_seconds=sg(dto, 'deepSleepSeconds', default=None),
-        light_seconds=sg(dto, 'lightSleepSeconds', default=None),
-        rem_seconds=sg(dto, 'remSleepSeconds', default=None),
-        awake_seconds=sg(dto, 'awakeSleepSeconds', default=None),
-        score=sg(dto, 'sleepScores', 'overall', 'value', default=None),
+        total_seconds=sg(dto, "sleepTimeSeconds", default=None),
+        deep_seconds=sg(dto, "deepSleepSeconds", default=None),
+        light_seconds=sg(dto, "lightSleepSeconds", default=None),
+        rem_seconds=sg(dto, "remSleepSeconds", default=None),
+        awake_seconds=sg(dto, "awakeSleepSeconds", default=None),
+        score=sg(dto, "sleepScores", "overall", "value", default=None),
     )
 
 
@@ -302,12 +325,12 @@ def fetch_hrv_data(session, day: str) -> HRVData:
 
     baseline = sg(summary, "baseline", default={})
     return HRVData(
-        last_night_avg=sg(summary, 'lastNightAvg', default=None),
-        last_night_5min_high=sg(summary, 'lastNight5MinHigh', default=None),
-        weekly_avg=sg(summary, 'weeklyAvg', default=None),
-        baseline_low=sg(baseline, 'balancedLow', default=None),
-        baseline_high=sg(baseline, 'balancedUpper', default=None),
-        status=sg(summary, 'status', default=None),
+        last_night_avg=sg(summary, "lastNightAvg", default=None),
+        last_night_5min_high=sg(summary, "lastNight5MinHigh", default=None),
+        weekly_avg=sg(summary, "weeklyAvg", default=None),
+        baseline_low=sg(baseline, "balancedLow", default=None),
+        baseline_high=sg(baseline, "balancedUpper", default=None),
+        status=sg(summary, "status", default=None),
     )
 
 
@@ -321,44 +344,51 @@ def fetch_summary_data(session, user_id: str, day: str):
         )
     except Exception as e:
         log.warning("综合数据获取失败: %s", e)
-        return StressData(), HeartRateData(), BodyBatteryData(), SpO2Data(), RespirationData(), ActivityData()
+        return (
+            StressData(),
+            HeartRateData(),
+            BodyBatteryData(),
+            SpO2Data(),
+            RespirationData(),
+            ActivityData(),
+        )
 
     stress = StressData(
-        average=sg(s, 'averageStressLevel', default=None),
-        max=sg(s, 'maxStressLevel', default=None),
-        rest_seconds=sg(s, 'restStressDuration', default=None),
-        low_seconds=sg(s, 'lowStressDuration', default=None),
-        medium_seconds=sg(s, 'mediumStressDuration', default=None),
-        high_seconds=sg(s, 'highStressDuration', default=None),
+        average=sg(s, "averageStressLevel", default=None),
+        max=sg(s, "maxStressLevel", default=None),
+        rest_seconds=sg(s, "restStressDuration", default=None),
+        low_seconds=sg(s, "lowStressDuration", default=None),
+        medium_seconds=sg(s, "mediumStressDuration", default=None),
+        high_seconds=sg(s, "highStressDuration", default=None),
     )
     heart_rate = HeartRateData(
-        resting=sg(s, 'restingHeartRate', default=None),
-        min=sg(s, 'minHeartRate', default=None),
-        max=sg(s, 'maxHeartRate', default=None),
-        avg7_resting=sg(s, 'lastSevenDaysAvgRestingHeartRate', default=None),
+        resting=sg(s, "restingHeartRate", default=None),
+        min=sg(s, "minHeartRate", default=None),
+        max=sg(s, "maxHeartRate", default=None),
+        avg7_resting=sg(s, "lastSevenDaysAvgRestingHeartRate", default=None),
     )
     body_battery = BodyBatteryData(
-        highest=sg(s, 'bodyBatteryHighestValue', default=None),
-        lowest=sg(s, 'bodyBatteryLowestValue', default=None),
-        charged=sg(s, 'bodyBatteryChargedValue', default=None),
-        drained=sg(s, 'bodyBatteryDrainedValue', default=None),
-        at_wake=sg(s, 'bodyBatteryAtWakeTime', default=None),
+        highest=sg(s, "bodyBatteryHighestValue", default=None),
+        lowest=sg(s, "bodyBatteryLowestValue", default=None),
+        charged=sg(s, "bodyBatteryChargedValue", default=None),
+        drained=sg(s, "bodyBatteryDrainedValue", default=None),
+        at_wake=sg(s, "bodyBatteryAtWakeTime", default=None),
     )
     spo2 = SpO2Data(
-        average=sg(s, 'averageSpo2', default=None),
-        lowest=sg(s, 'lowestSpo2', default=None),
-        latest=sg(s, 'latestSpo2', default=None),
+        average=sg(s, "averageSpo2", default=None),
+        lowest=sg(s, "lowestSpo2", default=None),
+        latest=sg(s, "latestSpo2", default=None),
     )
     respiration = RespirationData(
-        waking_avg=sg(s, 'avgWakingRespirationValue', default=None),
-        highest=sg(s, 'highestRespirationValue', default=None),
-        lowest=sg(s, 'lowestRespirationValue', default=None),
+        waking_avg=sg(s, "avgWakingRespirationValue", default=None),
+        highest=sg(s, "highestRespirationValue", default=None),
+        lowest=sg(s, "lowestRespirationValue", default=None),
     )
     activity = ActivityData(
-        steps=sg(s, 'totalSteps', default=None),
-        distance_meters=sg(s, 'totalDistanceMeters', default=None),
-        active_calories=sg(s, 'activeKilocalories', default=None),
-        floors_ascended=sg(s, 'floorsAscended', default=None),
+        steps=sg(s, "totalSteps", default=None),
+        distance_meters=sg(s, "totalDistanceMeters", default=None),
+        active_calories=sg(s, "activeKilocalories", default=None),
+        floors_ascended=sg(s, "floorsAscended", default=None),
     )
     return stress, heart_rate, body_battery, spo2, respiration, activity
 
@@ -395,18 +425,20 @@ def fetch_exercises_data(session, day: str) -> list[Exercise]:
         if activity_id and type_key and "strength" in str(type_key).lower():
             details = _fetch_exercise_sets(session, activity_id)
 
-        exercises.append(Exercise(
-            name=_normalize_activity_name(sg(act, "activityName", default="未知活动")),
-            type_key=type_key,
-            start_time=start_time_hhmm,
-            distance_meters=sg(act, "distance", default=None),
-            duration_seconds=sg(act, "duration", default=None),
-            avg_hr=sg(act, "averageHR", default=None),
-            max_hr=sg(act, "maxHR", default=None),
-            avg_speed=sg(act, "averageSpeed", default=None),
-            calories=sg(act, "calories", default=None),
-            details=details,
-        ))
+        exercises.append(
+            Exercise(
+                name=_normalize_activity_name(sg(act, "activityName", default="未知活动")),
+                type_key=type_key,
+                start_time=start_time_hhmm,
+                distance_meters=sg(act, "distance", default=None),
+                duration_seconds=sg(act, "duration", default=None),
+                avg_hr=sg(act, "averageHR", default=None),
+                max_hr=sg(act, "maxHR", default=None),
+                avg_speed=sg(act, "averageSpeed", default=None),
+                calories=sg(act, "calories", default=None),
+                details=details,
+            )
+        )
     return exercises
 
 
@@ -459,13 +491,13 @@ def _fetch_exercise_sets(session, activity_id) -> str | None:
     return ", ".join(parts)
 
 
-
 def fetch_daily_health(session, user_id: str, day: str) -> DailyHealth:
     """从 Garmin API 获取一天的完整健康数据，返回结构化模型。"""
     sleep = fetch_sleep_data(session, day)
     hrv = fetch_hrv_data(session, day)
-    stress, heart_rate, body_battery, spo2, respiration, activity = \
-        fetch_summary_data(session, user_id, day)
+    stress, heart_rate, body_battery, spo2, respiration, activity = fetch_summary_data(
+        session, user_id, day
+    )
     exercises = fetch_exercises_data(session, day)
 
     return DailyHealth(
@@ -484,13 +516,14 @@ def fetch_daily_health(session, user_id: str, day: str) -> DailyHealth:
 
 # ─── Pydantic → Markdown 格式化 ──────────────────────────────────
 
-def _v(val, suffix='') -> str:
+
+def _v(val, suffix="") -> str:
     """格式化值，None 显示为 N/A。"""
     if val is None:
-        return 'N/A'
+        return "N/A"
     if isinstance(val, float) and val.is_integer():
-        return f'{int(val)}{suffix}'
-    return f'{val}{suffix}'
+        return f"{int(val)}{suffix}"
+    return f"{val}{suffix}"
 
 
 def daily_health_to_markdown(dh: DailyHealth) -> str:
@@ -499,83 +532,115 @@ def daily_health_to_markdown(dh: DailyHealth) -> str:
 
     # 睡眠
     if dh.sleep.has_data:
-        sections.append("\n".join([
-            "## 睡眠",
-            f"- 总睡眠: {fmt_dur(dh.sleep.total_seconds)}",
-            f"- 深睡: {fmt_dur(dh.sleep.deep_seconds)} | "
-            f"浅睡: {fmt_dur(dh.sleep.light_seconds)} | "
-            f"REM: {fmt_dur(dh.sleep.rem_seconds)}",
-            f"- 清醒: {fmt_dur(dh.sleep.awake_seconds)}",
-            f"- 睡眠分数: {_v(dh.sleep.score)}",
-        ]))
+        sections.append(
+            "\n".join(
+                [
+                    "## 睡眠",
+                    f"- 总睡眠: {fmt_dur(dh.sleep.total_seconds)}",
+                    f"- 深睡: {fmt_dur(dh.sleep.deep_seconds)} | "
+                    f"浅睡: {fmt_dur(dh.sleep.light_seconds)} | "
+                    f"REM: {fmt_dur(dh.sleep.rem_seconds)}",
+                    f"- 清醒: {fmt_dur(dh.sleep.awake_seconds)}",
+                    f"- 睡眠分数: {_v(dh.sleep.score)}",
+                ]
+            )
+        )
     else:
         sections.append("## 睡眠\n- 无数据")
 
     # 压力
-    sections.append("\n".join([
-        "## 压力",
-        f"- 平均压力: {_v(dh.stress.average)}",
-        f"- 最高压力: {_v(dh.stress.max)}",
-        f"- 休息: {fmt_dur(dh.stress.rest_seconds)} | "
-        f"低: {fmt_dur(dh.stress.low_seconds)} | "
-        f"中: {fmt_dur(dh.stress.medium_seconds)} | "
-        f"高: {fmt_dur(dh.stress.high_seconds)}",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## 压力",
+                f"- 平均压力: {_v(dh.stress.average)}",
+                f"- 最高压力: {_v(dh.stress.max)}",
+                f"- 休息: {fmt_dur(dh.stress.rest_seconds)} | "
+                f"低: {fmt_dur(dh.stress.low_seconds)} | "
+                f"中: {fmt_dur(dh.stress.medium_seconds)} | "
+                f"高: {fmt_dur(dh.stress.high_seconds)}",
+            ]
+        )
+    )
 
     # 心率
-    sections.append("\n".join([
-        "## 心率",
-        f"- 静息心率: {_v(dh.heart_rate.resting)} bpm",
-        f"- 最低: {_v(dh.heart_rate.min)} bpm | 最高: {_v(dh.heart_rate.max)} bpm",
-        f"- 7天平均静息心率: {_v(dh.heart_rate.avg7_resting)} bpm",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## 心率",
+                f"- 静息心率: {_v(dh.heart_rate.resting)} bpm",
+                f"- 最低: {_v(dh.heart_rate.min)} bpm | 最高: {_v(dh.heart_rate.max)} bpm",
+                f"- 7天平均静息心率: {_v(dh.heart_rate.avg7_resting)} bpm",
+            ]
+        )
+    )
 
     # Body Battery
-    sections.append("\n".join([
-        "## Body Battery",
-        f"- 最高: {_v(dh.body_battery.highest)}",
-        f"- 最低: {_v(dh.body_battery.lowest)}",
-        f"- 充能: +{_v(dh.body_battery.charged)} | 消耗: -{_v(dh.body_battery.drained)}",
-        f"- 起床时: {_v(dh.body_battery.at_wake)}",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## Body Battery",
+                f"- 最高: {_v(dh.body_battery.highest)}",
+                f"- 最低: {_v(dh.body_battery.lowest)}",
+                f"- 充能: +{_v(dh.body_battery.charged)} | 消耗: -{_v(dh.body_battery.drained)}",
+                f"- 起床时: {_v(dh.body_battery.at_wake)}",
+            ]
+        )
+    )
 
     # 血氧
-    sections.append("\n".join([
-        "## 血氧 (SpO2)",
-        f"- 平均: {_v(dh.spo2.average)}%",
-        f"- 最低: {_v(dh.spo2.lowest)}%",
-        f"- 最新: {_v(dh.spo2.latest)}%",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## 血氧 (SpO2)",
+                f"- 平均: {_v(dh.spo2.average)}%",
+                f"- 最低: {_v(dh.spo2.lowest)}%",
+                f"- 最新: {_v(dh.spo2.latest)}%",
+            ]
+        )
+    )
 
     # 呼吸
-    sections.append("\n".join([
-        "## 呼吸",
-        f"- 清醒平均: {_v(dh.respiration.waking_avg)} 次/min",
-        f"- 最高: {_v(dh.respiration.highest)} 次/min | "
-        f"最低: {_v(dh.respiration.lowest)} 次/min",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## 呼吸",
+                f"- 清醒平均: {_v(dh.respiration.waking_avg)} 次/min",
+                f"- 最高: {_v(dh.respiration.highest)} 次/min | "
+                f"最低: {_v(dh.respiration.lowest)} 次/min",
+            ]
+        )
+    )
 
     # 活动
     steps = dh.activity.steps
     steps_str = f"{steps:,}" if isinstance(steps, int) else _v(steps)
-    sections.append("\n".join([
-        "## 活动",
-        f"- 步数: {steps_str}",
-        f"- 距离: {_v(dh.activity.distance_km)} km",
-        f"- 活动卡路里: {_v(dh.activity.active_calories)} kcal",
-        f"- 爬楼: {_v(dh.activity.floors_ascended)} 层",
-    ]))
+    sections.append(
+        "\n".join(
+            [
+                "## 活动",
+                f"- 步数: {steps_str}",
+                f"- 距离: {_v(dh.activity.distance_km)} km",
+                f"- 活动卡路里: {_v(dh.activity.active_calories)} kcal",
+                f"- 爬楼: {_v(dh.activity.floors_ascended)} 层",
+            ]
+        )
+    )
 
     # HRV
     if dh.hrv.last_night_avg is not None:
-        sections.append("\n".join([
-            "## HRV",
-            f"- 昨晚平均: {_v(dh.hrv.last_night_avg)} ms",
-            f"- 昨晚最高 (5min): {_v(dh.hrv.last_night_5min_high)} ms",
-            f"- 周平均: {_v(dh.hrv.weekly_avg)} ms",
-            f"- 基线: {_v(dh.hrv.baseline_low)}-{_v(dh.hrv.baseline_high)} ms",
-            f"- 状态: {_v(dh.hrv.status)}",
-        ]))
+        sections.append(
+            "\n".join(
+                [
+                    "## HRV",
+                    f"- 昨晚平均: {_v(dh.hrv.last_night_avg)} ms",
+                    f"- 昨晚最高 (5min): {_v(dh.hrv.last_night_5min_high)} ms",
+                    f"- 周平均: {_v(dh.hrv.weekly_avg)} ms",
+                    f"- 基线: {_v(dh.hrv.baseline_low)}-{_v(dh.hrv.baseline_high)} ms",
+                    f"- 状态: {_v(dh.hrv.status)}",
+                ]
+            )
+        )
     else:
         sections.append("## HRV\n- 无数据")
 
@@ -604,6 +669,7 @@ def daily_health_to_markdown(dh: DailyHealth) -> str:
 
 
 # ─── 生成与保存 ────────────────────────────────────────────────────
+
 
 def save_day(session, user_id, day, retry_empty=True, skip_existing=False):
     day_str = day if isinstance(day, str) else day.isoformat()
@@ -664,11 +730,17 @@ def main():
 
     parser = argparse.ArgumentParser(description="从 Garmin Connect 中国区拉取健康数据")
     parser.add_argument("--login", action="store_true", help="交互式登录并保存 session")
-    parser.add_argument("--credentials", nargs=2, metavar=("EMAIL", "PASSWORD"), help="直接提供凭据登录")
+    parser.add_argument(
+        "--credentials", nargs=2, metavar=("EMAIL", "PASSWORD"), help="直接提供凭据登录"
+    )
     parser.add_argument("--date", type=str, help="拉取指定日期 (YYYY-MM-DD)")
     parser.add_argument("--range", nargs=2, metavar=("START", "END"), help="拉取日期范围")
-    parser.add_argument("--no-retry-empty", action="store_true", help="当天无数据时不重试（适合批量补录）")
-    parser.add_argument("--skip-existing", action="store_true", help="数据库中已存在该日期记录时跳过")
+    parser.add_argument(
+        "--no-retry-empty", action="store_true", help="当天无数据时不重试（适合批量补录）"
+    )
+    parser.add_argument(
+        "--skip-existing", action="store_true", help="数据库中已存在该日期记录时跳过"
+    )
     args = parser.parse_args()
 
     if args.login:

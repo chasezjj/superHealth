@@ -12,11 +12,13 @@ import streamlit as st
 from superhealth.dashboard.data_loader import (
     get_latest_weekly_report,
     load_feedback_by_range,
-    load_recent_feedback,
     load_recent_goal_progress,
 )
 from superhealth.database import DEFAULT_DB_PATH, get_conn, query_active_goals
+from superhealth.goals.manager import GoalManager
 from superhealth.goals.metrics import METRIC_REGISTRY
+
+
 def _compliance_label(compliance: int | None) -> tuple[str, str]:
     """返回 (颜色标签, 文字描述)。"""
     if compliance is None:
@@ -124,7 +126,7 @@ def _parse_weekly_summary(summary: str) -> list[tuple[str, str]]:
                 if sep in content:
                     idx = content.index(sep)
                     current_title = content[:idx].strip()
-                    current_body = [content[idx + len(sep):].strip()]
+                    current_body = [content[idx + len(sep) :].strip()]
                     break
             else:
                 # 没有冒号，整段作为正文，标题留空（fallback）
@@ -168,10 +170,7 @@ def _render_feedback_card(row: pd.Series):
         # 建议 & 实际执行
         content = row["recommendation_content"]
         actual = row["actual_action"]
-        st.markdown(
-            f"**建议：** {content or '—'}  \n"
-            f"**实际执行：** {actual or '—'}"
-        )
+        st.markdown(f"**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
 
         # 用户反馈
         user_fb = row["user_feedback"]
@@ -297,29 +296,34 @@ def _render_goal_progress():
             # 30天趋势图
             if not df.empty and len(df) >= 2:
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=df["date"].astype(str),
-                    y=df["current_value"],
-                    mode="lines+markers",
-                    name="当前值",
-                    line=dict(width=2),
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=df["date"].astype(str),
+                        y=df["current_value"],
+                        mode="lines+markers",
+                        name="当前值",
+                        line=dict(width=2),
+                    )
+                )
                 if goal.get("baseline_value") is not None:
                     fig.add_hline(
                         y=goal["baseline_value"],
-                        line_dash="dash", line_color="gray",
+                        line_dash="dash",
+                        line_color="gray",
                         annotation_text="基线",
                     )
                 if goal.get("target_value") is not None:
                     fig.add_hline(
                         y=goal["target_value"],
-                        line_dash="dash", line_color="green",
+                        line_dash="dash",
+                        line_color="green",
                         annotation_text="目标",
                     )
                 fig.update_layout(
                     height=220,
                     margin=dict(l=40, r=20, t=20, b=30),
-                    xaxis_title="", yaxis_title="",
+                    xaxis_title="",
+                    yaxis_title="",
                     showlegend=False,
                 )
                 st.plotly_chart(fig, width="stretch")

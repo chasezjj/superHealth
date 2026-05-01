@@ -23,17 +23,17 @@ config.toml 配置示例：
 from __future__ import annotations
 
 import argparse
+import gzip
+import json as _json
 import logging
+import ssl
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
-import gzip
-import ssl
 from urllib.error import URLError
 from urllib.request import urlopen
-import json as _json
-import time
 
 _SSL_CTX = ssl.create_default_context()
 # 保留系统默认 SSL 验证，不全局禁用证书检查
@@ -48,13 +48,52 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 # 降水类型代码（和风天气 icon code 映射）
 # 参考：https://dev.qweather.com/docs/resource/icons/
 _RAIN_CODES = {
-    "300", "301", "302", "303", "304", "305", "306", "307", "308",
-    "309", "310", "311", "312", "313", "314", "315", "316", "317",
-    "318", "399",  # 雨
-    "400", "401", "402", "403", "404", "405", "406", "407", "408",
-    "409", "410", "499",  # 雪
-    "500", "501", "502", "503", "504", "507", "508", "509", "510",
-    "511", "512", "513", "514", "515",  # 雾/霾/沙尘
+    "300",
+    "301",
+    "302",
+    "303",
+    "304",
+    "305",
+    "306",
+    "307",
+    "308",
+    "309",
+    "310",
+    "311",
+    "312",
+    "313",
+    "314",
+    "315",
+    "316",
+    "317",
+    "318",
+    "399",  # 雨
+    "400",
+    "401",
+    "402",
+    "403",
+    "404",
+    "405",
+    "406",
+    "407",
+    "408",
+    "409",
+    "410",
+    "499",  # 雪
+    "500",
+    "501",
+    "502",
+    "503",
+    "504",
+    "507",
+    "508",
+    "509",
+    "510",
+    "511",
+    "512",
+    "513",
+    "514",
+    "515",  # 雾/霾/沙尘
 }
 
 # 包含降水的天气描述关键字（fallback 文字匹配）
@@ -64,13 +103,13 @@ _RAIN_KEYWORDS = ("雨", "雪", "雷", "冰雹", "冻")
 @dataclass
 class WeatherData:
     date: str
-    condition: str           # 天气状况描述（白天预报，fallback 实时）
+    condition: str  # 天气状况描述（白天预报，fallback 实时）
     temperature: Optional[float]  # °C（实时，仅作 fallback 显示）
-    temp_max: Optional[float]     # 全天最高气温 °C（3日预报）
-    temp_min: Optional[float]     # 全天最低气温 °C（3日预报）
-    wind_scale: Optional[int]     # 风力级别 0-12（白天预报，fallback 实时）
-    aqi: Optional[float]          # 中国标准 AQI（全天日预报，0-500）
-    outdoor_ok: bool              # 综合判定
+    temp_max: Optional[float]  # 全天最高气温 °C（3日预报）
+    temp_min: Optional[float]  # 全天最低气温 °C（3日预报）
+    wind_scale: Optional[int]  # 风力级别 0-12（白天预报，fallback 实时）
+    aqi: Optional[float]  # 中国标准 AQI（全天日预报，0-500）
+    outdoor_ok: bool  # 综合判定
 
     def to_dict(self) -> dict:
         return {
@@ -117,8 +156,13 @@ def _wind_speed_to_scale(wind_speed_kmh: Optional[float]) -> Optional[int]:
     return 12
 
 
-def _is_outdoor_ok(condition: str, wind_scale: Optional[int], aqi: Optional[float],
-                   icon_code: str = "", wind_speed_scale: Optional[int] = None) -> bool:
+def _is_outdoor_ok(
+    condition: str,
+    wind_scale: Optional[int],
+    aqi: Optional[float],
+    icon_code: str = "",
+    wind_speed_scale: Optional[int] = None,
+) -> bool:
     """综合判定是否适合户外运动。"""
     # 1. 降水判定（图标代码优先，文字匹配兜底）
     if icon_code and icon_code in _RAIN_CODES:
@@ -154,8 +198,7 @@ def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
         return None
 
 
-def fetch_weather(target_date: str = None,
-                  db_path: Path = DB_PATH) -> Optional[WeatherData]:
+def fetch_weather(target_date: str = None, db_path: Path = DB_PATH) -> Optional[WeatherData]:
     """采集天气数据并写入 DB，返回 WeatherData 或 None（API 不可用时）。
 
     target_date: YYYY-MM-DD，默认今天。
@@ -297,8 +340,13 @@ def fetch_weather(target_date: str = None,
                                 pass
                             break
             if aqi is not None:
-                log.debug("空气质量 AQI=%s category=%s", aqi,
-                          days_list[0]["indexes"][0].get("category", "") if air_resp and days_list else "")
+                log.debug(
+                    "空气质量 AQI=%s category=%s",
+                    aqi,
+                    days_list[0]["indexes"][0].get("category", "")
+                    if air_resp and days_list
+                    else "",
+                )
             else:
                 log.debug("空气质量 API 无响应或解析失败，跳过 AQI")
 
@@ -338,10 +386,19 @@ def fetch_weather(target_date: str = None,
             outdoor_ok=1 if outdoor_ok else 0,
         )
 
-    temp_display = f"{temp_min:.0f}~{temp_max:.0f}°C" if temp_max is not None and temp_min is not None else f"{temperature}°C"
+    temp_display = (
+        f"{temp_min:.0f}~{temp_max:.0f}°C"
+        if temp_max is not None and temp_min is not None
+        else f"{temperature}°C"
+    )
     log.info(
         "天气采集完成: %s %s %s 风力%s级 AQI=%s outdoor_ok=%s",
-        day_str, condition, temp_display, wind_scale, aqi, outdoor_ok,
+        day_str,
+        condition,
+        temp_display,
+        wind_scale,
+        aqi,
+        outdoor_ok,
     )
     return weather_data
 

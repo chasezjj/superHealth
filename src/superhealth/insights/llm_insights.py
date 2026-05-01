@@ -11,16 +11,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
-from superhealth import database as db
-from superhealth.analysis.trends import TrendAnalyzer
-from superhealth.analysis.correlation import CorrelationAnalyzer
 from superhealth.analysis.causal import CausalInferenceAnalyzer
+from superhealth.analysis.correlation import CorrelationAnalyzer
+from superhealth.analysis.trends import TrendAnalyzer
 from superhealth.config import load as load_config
 
 log = logging.getLogger(__name__)
@@ -45,6 +42,7 @@ class LLMInsightsGenerator:
                 return None
             try:
                 import anthropic
+
                 kwargs = {"api_key": cfg.claude.api_key}
                 if cfg.claude.base_url:
                     kwargs["base_url"] = cfg.claude.base_url
@@ -142,7 +140,11 @@ class LLMInsightsGenerator:
         # 标注各模块数据窗口，避免读者误以为是同一口径
         if correlation_summary and correlation_summary != "相关性数据不足":
             correlation_summary = "（基于最近 30 天数据）\n\n" + correlation_summary
-        if causal_summary and not causal_summary.startswith("暂无") and not causal_summary.startswith("因果"):
+        if (
+            causal_summary
+            and not causal_summary.startswith("暂无")
+            and not causal_summary.startswith("因果")
+        ):
             causal_summary = "（基于最近 30 天数据）\n\n" + causal_summary
 
         client = self._get_claude_client()
@@ -165,7 +167,7 @@ class LLMInsightsGenerator:
             try:
                 message = client.messages.create(
                     model=cfg.claude.model,
-                    max_tokens=getattr(cfg.claude, 'max_tokens', 2048) or 2048,
+                    max_tokens=getattr(cfg.claude, "max_tokens", 2048) or 2048,
                     messages=[{"role": "user", "content": prompt}],
                 )
                 llm_text = next(b.text for b in message.content if b.type == "text").strip()

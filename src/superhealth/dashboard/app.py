@@ -20,10 +20,12 @@ def _login_gate() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
-    from superhealth.config import load as load_config, save_dashboard_password
+    from superhealth.config import load as load_config
+    from superhealth.config import save_dashboard_password
+
     config = load_config()
     correct = config.dashboard.password
-    if not correct:          # 未配置密码则直接放行
+    if not correct:  # 未配置密码则直接放行
         st.session_state["authenticated"] = True
         return True
 
@@ -35,7 +37,9 @@ def _login_gate() -> bool:
         value=config.dashboard.saved_password,
         key="login_pwd",
     )
-    remember = st.checkbox("记住密码", key="login_remember", value=bool(config.dashboard.saved_password))
+    remember = st.checkbox(
+        "记住密码", key="login_remember", value=bool(config.dashboard.saved_password)
+    )
     if st.button("登录", key="login_btn"):
         if pwd == correct:
             st.session_state["authenticated"] = True
@@ -54,16 +58,16 @@ if not _login_gate():
 
 
 from superhealth.dashboard.views import (
-    overview,
-    trends,
-    lab_results,
+    config_page,
     correlations,
-    prediction,
+    experiment_page,
     export,
     historical_review,
+    lab_results,
+    overview,
+    prediction,
     preferences_page,
-    experiment_page,
-    config_page,
+    trends,
 )
 
 PAGES = {
@@ -86,6 +90,7 @@ with st.sidebar:
     st.divider()
 
     from superhealth.config import load as load_config
+
     cfg = load_config()
     if cfg.dashboard.password and st.session_state.get("authenticated"):
         if st.button("退出登录", key="logout_btn"):

@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -129,7 +128,7 @@ class MedicationTracker:
             # 获取药物信息
             med_row = conn.execute(
                 "SELECT * FROM medications WHERE name = ? ORDER BY start_date DESC LIMIT 1",
-                (medication_name,)
+                (medication_name,),
             ).fetchone()
 
             if not med_row:
@@ -143,7 +142,7 @@ class MedicationTracker:
                 """SELECT date, value, unit FROM lab_results
                    WHERE item_name = ? AND date < ?
                    ORDER BY date DESC LIMIT 3""",
-                (indicator, start_date)
+                (indicator, start_date),
             ).fetchall()
 
             # 查询用药后的指标
@@ -151,7 +150,7 @@ class MedicationTracker:
                 """SELECT date, value, unit FROM lab_results
                    WHERE item_name = ? AND date >= ?
                    ORDER BY date ASC LIMIT 3""",
-                (indicator, start_date)
+                (indicator, start_date),
             ).fetchall()
 
             before_values = [r["value"] for r in before_rows if r["value"] is not None]

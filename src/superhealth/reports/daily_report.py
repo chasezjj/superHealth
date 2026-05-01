@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean
-from typing import Any, Optional
+from typing import Optional
 
 from superhealth import database as db
 from superhealth.analysis.trends import TrendAnalyzer
@@ -33,6 +33,7 @@ DATA_DIR = Path(__file__).parent.parent.parent.parent / "activity-data"
 @dataclass
 class VitalStats:
     """体征统计数据。"""
+
     latest_systolic: Optional[int] = None
     latest_diastolic: Optional[int] = None
     latest_weight: Optional[float] = None
@@ -48,6 +49,7 @@ class VitalStats:
 @dataclass
 class RecoveryAssessment:
     """恢复状态评估。"""
+
     overall_score: int  # 0-100
     level: str  # "优秀"/"良好"/"一般"/"需恢复"
     sleep_quality: str
@@ -59,6 +61,7 @@ class RecoveryAssessment:
 @dataclass
 class ExerciseRecommendation:
     """运动建议。"""
+
     intensity: str  # "高强度"/"中等强度"/"轻度"/"休息"
     duration: str
     type_suggestion: str
@@ -92,10 +95,10 @@ class DailyReportGenerator:
             # 最新值
             latest = db.query_vitals_by_date(conn, day_str)
             if latest:
-                stats.latest_systolic = latest.get('systolic')
-                stats.latest_diastolic = latest.get('diastolic')
-                stats.latest_weight = latest.get('weight_kg')
-                stats.latest_body_fat = latest.get('body_fat_pct')
+                stats.latest_systolic = latest.get("systolic")
+                stats.latest_diastolic = latest.get("diastolic")
+                stats.latest_weight = latest.get("weight_kg")
+                stats.latest_body_fat = latest.get("body_fat_pct")
 
             # 7天平均
             rows = conn.execute(
@@ -103,13 +106,13 @@ class DailyReportGenerator:
                    FROM vitals
                    WHERE measured_at >= ? AND measured_at < ? || 'T23:59:59'
                      AND systolic IS NOT NULL""",
-                (start_7d + 'T00:00:00', end_date)
+                (start_7d + "T00:00:00", end_date),
             ).fetchall()
 
             if rows:
-                stats.avg_7d_systolic = mean([r['systolic'] for r in rows if r['systolic']])
-                stats.avg_7d_diastolic = mean([r['diastolic'] for r in rows if r['diastolic']])
-                weights = [r['weight_kg'] for r in rows if r['weight_kg']]
+                stats.avg_7d_systolic = mean([r["systolic"] for r in rows if r["systolic"]])
+                stats.avg_7d_diastolic = mean([r["diastolic"] for r in rows if r["diastolic"]])
+                weights = [r["weight_kg"] for r in rows if r["weight_kg"]]
                 if weights:
                     stats.avg_7d_weight = mean(weights)
 
@@ -118,10 +121,10 @@ class DailyReportGenerator:
                 """SELECT weight_kg FROM vitals
                    WHERE measured_at >= ? AND measured_at < ? || 'T23:59:59'
                      AND weight_kg IS NOT NULL""",
-                (start_30d + 'T00:00:00', end_date)
+                (start_30d + "T00:00:00", end_date),
             ).fetchall()
             if rows:
-                weights = [r['weight_kg'] for r in rows]
+                weights = [r["weight_kg"] for r in rows]
                 stats.avg_30d_weight = mean(weights)
 
             # 7天体重变化
@@ -135,18 +138,22 @@ class DailyReportGenerator:
                    WHERE measured_at >= ? AND measured_at < ? || 'T23:59:59'
                      AND (systolic >= 130 OR diastolic >= 85)
                    ORDER BY measured_at DESC""",
-                (start_7d + 'T00:00:00', end_date)
+                (start_7d + "T00:00:00", end_date),
             ).fetchall()
             for row in rows:
-                stats.recent_high_bp_readings.append({
-                    'measured_at': row['measured_at'][:10],
-                    'systolic': row['systolic'],
-                    'diastolic': row['diastolic']
-                })
+                stats.recent_high_bp_readings.append(
+                    {
+                        "measured_at": row["measured_at"][:10],
+                        "systolic": row["systolic"],
+                        "diastolic": row["diastolic"],
+                    }
+                )
 
         return stats
 
-    def get_metric_trend_analysis(self, metric: str, day_str: str) -> tuple[Optional[float], Optional[str]]:
+    def get_metric_trend_analysis(
+        self, metric: str, day_str: str
+    ) -> tuple[Optional[float], Optional[str]]:
         """获取指标趋势分析。
 
         Returns: (当日值, 趋势描述)
@@ -159,15 +166,15 @@ class DailyReportGenerator:
             # 当日值
             today_value = None
             for d in trend_data:
-                if d['date'] == day_str:
-                    today_value = d['value']
+                if d["date"] == day_str:
+                    today_value = d["value"]
                     break
 
             if today_value is None:
                 return None, None
 
             # 计算30天平均
-            avg_30d = trend_data[-1].get('avg_30d')
+            avg_30d = trend_data[-1].get("avg_30d")
 
             # 获取阈值用于判断偏离程度
             thresholds = {
@@ -206,7 +213,7 @@ class DailyReportGenerator:
         result = RecoveryModel().assess(garmin_data, {}, profile)
 
         # 从 garmin_data 计算展示标签（与 RecoveryModel 内部一致）
-        sleep_score = garmin_data.get('sleep_score')
+        sleep_score = garmin_data.get("sleep_score")
         if sleep_score:
             if sleep_score >= 85:
                 sleep_quality = "优秀"
@@ -221,17 +228,17 @@ class DailyReportGenerator:
         else:
             sleep_quality = "无数据"
 
-        hrv_status = (garmin_data.get('hrv_status') or '').upper()
-        if hrv_status == 'BALANCED':
+        hrv_status = (garmin_data.get("hrv_status") or "").upper()
+        if hrv_status == "BALANCED":
             hrv_desc = "平衡"
-        elif hrv_status == 'UNBALANCED':
+        elif hrv_status == "UNBALANCED":
             hrv_desc = "波动"
-        elif hrv_status == 'LOW':
+        elif hrv_status == "LOW":
             hrv_desc = "偏低"
         else:
             hrv_desc = "未知"
 
-        bb_wake = garmin_data.get('body_battery_wake')
+        bb_wake = garmin_data.get("body_battery_wake")
         if bb_wake:
             if bb_wake >= 80:
                 bb_desc = "充足"
@@ -263,10 +270,7 @@ class DailyReportGenerator:
         )
 
     def generate_exercise_recommendation(
-        self,
-        assessment: RecoveryAssessment,
-        garmin_data: dict,
-        vitals: VitalStats
+        self, assessment: RecoveryAssessment, garmin_data: dict, vitals: VitalStats
     ) -> ExerciseRecommendation:
         """生成运动建议。"""
         cautions = []
@@ -292,20 +296,30 @@ class DailyReportGenerator:
         # 血压检查
         if vitals.latest_systolic and vitals.latest_diastolic:
             if vitals.latest_systolic >= 140 or vitals.latest_diastolic >= 90:
-                cautions.append(f"血压偏高({vitals.latest_systolic}/{vitals.latest_diastolic})，避免高强度运动")
+                cautions.append(
+                    f"血压偏高({vitals.latest_systolic}/{vitals.latest_diastolic})，避免高强度运动"
+                )
                 if intensity == "高强度":
                     intensity = "中等强度"
                     type_suggestion = "改为中等强度有氧，避免爆发力动作"
             elif vitals.latest_systolic >= 130 or vitals.latest_diastolic >= 85:
-                cautions.append(f"血压偏高({vitals.latest_systolic}/{vitals.latest_diastolic})，监控运动强度")
+                cautions.append(
+                    f"血压偏高({vitals.latest_systolic}/{vitals.latest_diastolic})，监控运动强度"
+                )
 
         # 近期异常血压提醒
         if vitals.recent_high_bp_readings and len(vitals.recent_high_bp_readings) > 0:
             # 排除今天的记录
-            other_days = [r for r in vitals.recent_high_bp_readings if r['measured_at'] != date.today().isoformat()]
+            other_days = [
+                r
+                for r in vitals.recent_high_bp_readings
+                if r["measured_at"] != date.today().isoformat()
+            ]
             if other_days:
                 recent = other_days[0]
-                cautions.append(f"{recent['measured_at']}有血压偏高记录({recent['systolic']}/{recent['diastolic']})，注意监测")
+                cautions.append(
+                    f"{recent['measured_at']}有血压偏高记录({recent['systolic']}/{recent['diastolic']})，注意监测"
+                )
 
         # 体重变化检查
         if vitals.weight_change_7d:
@@ -315,11 +329,11 @@ class DailyReportGenerator:
                 cautions.append(f"近7天体重下降{abs(vitals.weight_change_7d):.1f}kg，确保充足营养")
 
         # HRV 检查
-        if garmin_data.get('hrv_status', '').upper() == 'LOW':
+        if garmin_data.get("hrv_status", "").upper() == "LOW":
             cautions.append("HRV偏低，身体可能处于疲劳状态，建议降低训练强度")
 
         # 睡眠检查
-        sleep_score = garmin_data.get('sleep_score')
+        sleep_score = garmin_data.get("sleep_score")
         if sleep_score and sleep_score < 70:
             cautions.append(f"睡眠不足({sleep_score})，优先考虑补觉而非高强度训练")
 
@@ -327,7 +341,7 @@ class DailyReportGenerator:
             intensity=intensity,
             duration=duration,
             type_suggestion=type_suggestion,
-            cautions=cautions
+            cautions=cautions,
         )
 
     def get_trend_insights(self, day_str: str) -> list[str]:
@@ -406,17 +420,17 @@ class DailyReportGenerator:
         lines.append("")
 
         # 睡眠（带趋势）
-        sleep_min = garmin.get('sleep_total_min')
-        sleep_score = garmin.get('sleep_score')
+        sleep_min = garmin.get("sleep_total_min")
+        sleep_score = garmin.get("sleep_score")
         sleep_val, sleep_trend = self.get_metric_trend_analysis("sleep_score", day_str)
-        sleep_line = f"- 睡眠: {f'{sleep_min//60}小时{sleep_min%60}分' if sleep_min else 'N/A'} | 评分: {sleep_score or 'N/A'}"
+        sleep_line = f"- 睡眠: {f'{sleep_min // 60}小时{sleep_min % 60}分' if sleep_min else 'N/A'} | 评分: {sleep_score or 'N/A'}"
         if sleep_trend:
             sleep_line += f" ({sleep_trend})"
         lines.append(sleep_line)
 
         # HRV（带趋势）
-        hrv = garmin.get('hrv_avg')
-        hrv_status = garmin.get('hrv_status')
+        hrv = garmin.get("hrv_avg")
+        hrv_status = garmin.get("hrv_status")
         hrv_val, hrv_trend = self.get_metric_trend_analysis("hrv_avg", day_str)
         hrv_line = f"- HRV: {f'{hrv:.0f} ms' if hrv else 'N/A'} ({hrv_status or 'N/A'})"
         if hrv_trend:
@@ -424,7 +438,7 @@ class DailyReportGenerator:
         lines.append(hrv_line)
 
         # 静息心率（带趋势）
-        rhr = garmin.get('resting_hr')
+        rhr = garmin.get("resting_hr")
         rhr_val, rhr_trend = self.get_metric_trend_analysis("resting_hr", day_str)
         rhr_line = f"- 静息心率: {f'{rhr:.0f} bpm' if rhr else 'N/A'}"
         if rhr_trend:
@@ -432,7 +446,7 @@ class DailyReportGenerator:
         lines.append(rhr_line)
 
         # Body Battery（带趋势）
-        bb = garmin.get('body_battery_wake')
+        bb = garmin.get("body_battery_wake")
         bb_val, bb_trend = self.get_metric_trend_analysis("body_battery_wake", day_str)
         bb_line = f"- Body Battery: {f'{bb:.0f}' if bb else 'N/A'} (起床时)"
         if bb_trend:
@@ -440,7 +454,7 @@ class DailyReportGenerator:
         lines.append(bb_line)
 
         # 压力（带趋势）
-        stress = garmin.get('avg_stress')
+        stress = garmin.get("avg_stress")
         stress_val, stress_trend = self.get_metric_trend_analysis("avg_stress", day_str)
         stress_line = f"- 平均压力: {f'{stress:.0f}' if stress else 'N/A'}"
         if stress_trend:
@@ -448,7 +462,7 @@ class DailyReportGenerator:
         lines.append(stress_line)
 
         # 步数
-        steps = garmin.get('steps')
+        steps = garmin.get("steps")
         lines.append(f"- 步数: {f'{steps:,}' if steps else 'N/A'}")
 
         lines.append("")
@@ -464,17 +478,25 @@ class DailyReportGenerator:
                     bp_status = " ⚠️ 偏高"
                 elif vitals.latest_systolic >= 130 or vitals.latest_diastolic >= 85:
                     bp_status = " ⚡ 注意"
-                lines.append(f"- 血压: {vitals.latest_systolic}/{vitals.latest_diastolic} mmHg{bp_status}")
+                lines.append(
+                    f"- 血压: {vitals.latest_systolic}/{vitals.latest_diastolic} mmHg{bp_status}"
+                )
                 if vitals.avg_7d_systolic:
-                    lines.append(f"  (7天平均: {vitals.avg_7d_systolic:.0f}/{vitals.avg_7d_diastolic:.0f})")
+                    lines.append(
+                        f"  (7天平均: {vitals.avg_7d_systolic:.0f}/{vitals.avg_7d_diastolic:.0f})"
+                    )
 
                 # 近期异常血压提醒
                 if vitals.recent_high_bp_readings and len(vitals.recent_high_bp_readings) > 0:
-                    other_days = [r for r in vitals.recent_high_bp_readings if r['measured_at'] != day_str]
+                    other_days = [
+                        r for r in vitals.recent_high_bp_readings if r["measured_at"] != day_str
+                    ]
                     if other_days:
-                        lines.append(f"- ⚠️ 近期血压偏高记录:")
+                        lines.append("- ⚠️ 近期血压偏高记录:")
                         for r in other_days[:3]:
-                            lines.append(f"  - {r['measured_at']}: {r['systolic']}/{r['diastolic']} mmHg")
+                            lines.append(
+                                f"  - {r['measured_at']}: {r['systolic']}/{r['diastolic']} mmHg"
+                            )
 
             if vitals.latest_weight:
                 lines.append(f"- 体重: {vitals.latest_weight:.1f} kg")

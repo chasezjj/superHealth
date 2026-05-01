@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import streamlit as st
 from pathlib import Path
+
+import streamlit as st
 
 DB_PATH = Path(__file__).parent.parent.parent.parent.parent / "health.db"
 
@@ -13,10 +14,9 @@ def render():
     st.caption("N-of-1 干预实验框架 · 基于阶段性目标的结构化干预")
 
     from superhealth.feedback.experiment_manager import ExperimentManager
-    from superhealth.goals.manager import GoalManager
     from superhealth.goals.metrics import METRIC_REGISTRY
+
     mgr = ExperimentManager(DB_PATH)
-    goal_mgr = GoalManager(DB_PATH)
 
     direction_labels = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
 
@@ -33,7 +33,11 @@ def render():
         with col2:
             if active.get("start_date") and active.get("end_date"):
                 from datetime import date
-                total = (date.fromisoformat(active["end_date"]) - date.fromisoformat(active["start_date"])).days + 1
+
+                total = (
+                    date.fromisoformat(active["end_date"])
+                    - date.fromisoformat(active["start_date"])
+                ).days + 1
                 elapsed = (date.today() - date.fromisoformat(active["start_date"])).days + 1
                 pct = min(100, max(0, elapsed / total * 100))
                 st.metric("进度", f"{elapsed}/{total} 天")
@@ -53,6 +57,7 @@ def render():
         goal_id = active.get("goal_id")
         if goal_id and active.get("baseline_end"):
             from superhealth import database as db
+
             with db.get_conn(DB_PATH) as conn:
                 # 优先使用目标创建时确定的基线值（与今日概览保持一致）
                 goal_row = conn.execute(
@@ -93,6 +98,7 @@ def render():
         st.info("当前无活跃实验。从目标推荐干预中选择一个创建实验。")
 
         from superhealth import database as db
+
         with db.get_conn(DB_PATH) as conn:
             goals = conn.execute(
                 "SELECT id, name, metric_key, direction FROM goals WHERE status = 'active' ORDER BY priority"
@@ -102,8 +108,8 @@ def render():
             for g in goals:
                 candidates = mgr.suggest_for_goal(g["id"])
 
-                spec = METRIC_REGISTRY.get(g['metric_key'])
-                metric_label = spec.label if spec else g['metric_key']
+                spec = METRIC_REGISTRY.get(g["metric_key"])
+                metric_label = spec.label if spec else g["metric_key"]
                 with st.expander(f"Goal: {g['name']}（{metric_label}）", expanded=False):
                     if not candidates:
                         st.warning("暂无推荐干预方案")
@@ -125,7 +131,7 @@ def render():
                     for c in candidates:
                         col_name, col_act = st.columns([3, 1])
                         with col_name:
-                            is_first = (c["index"] == 0)
+                            is_first = c["index"] == 0
                             badge = " **[推荐]**" if is_first else ""
                             st.markdown(f"**{c['name']}**{badge}（{c['duration']}天）")
                             st.caption(c["intervention"])
@@ -143,8 +149,12 @@ def render():
                                         hypothesis = c.get("hypothesis")
                                         if not hypothesis:
                                             spec_c = METRIC_REGISTRY.get(c["metric_key"])
-                                            metric_label_c = spec_c.label if spec_c else c["metric_key"]
-                                            dir_label_c = direction_labels.get(c["direction"], c["direction"])
+                                            metric_label_c = (
+                                                spec_c.label if spec_c else c["metric_key"]
+                                            )
+                                            dir_label_c = direction_labels.get(
+                                                c["direction"], c["direction"]
+                                            )
                                             hypothesis = f"{c['intervention']} 对 {metric_label_c}（方向: {dir_label_c}）的效果"
                                         exp_id = mgr.create_draft(
                                             name=c["name"],

@@ -13,21 +13,20 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from superhealth import database as db
 from superhealth.collectors import fetch_garmin as fg
 from superhealth.collectors import send_garmin_report
+from superhealth.collectors.outlook_collector import fetch_calendar
 from superhealth.feedback import auto_feedback
 from superhealth.feedback.effect_tracker import EffectTracker
 from superhealth.feedback.strategy_learner import StrategyLearner
-from superhealth.reports.advanced_daily_report import AdvancedDailyReportGenerator
-from superhealth.reminders import appointment_scheduler, reminder_notifier
 from superhealth.goals.manager import GoalManager
-from superhealth.collectors.outlook_collector import fetch_calendar
 from superhealth.insights.llm_insights import LLMInsightsGenerator
+from superhealth.reminders import appointment_scheduler, reminder_notifier
+from superhealth.reports.advanced_daily_report import AdvancedDailyReportGenerator
 
 log = logging.getLogger(__name__)
 
@@ -205,6 +204,7 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
     # 8.5 实验评估（检查活跃实验是否到期）
     try:
         from superhealth.feedback.experiment_manager import ExperimentManager
+
         exp_mgr = ExperimentManager(DB_PATH)
         exp_mgr.check_and_evaluate(day)
         _log_step(day, "experiment_eval", True)
@@ -240,7 +240,9 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     ap = argparse.ArgumentParser(description="每日健康数据流水线编排器")
-    ap.add_argument("--test-mode", action="store_true", help="测试模式：仅生成高级日报测试文件，不写DB")
+    ap.add_argument(
+        "--test-mode", action="store_true", help="测试模式：仅生成高级日报测试文件，不写DB"
+    )
     ap.add_argument("--retry-days", type=int, default=7, help="检查历史失败的天数，默认7")
     ap.add_argument("--date", type=str, help="指定业务日期 (YYYY-MM-DD)，默认今天")
     args = ap.parse_args()

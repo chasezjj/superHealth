@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "chasezjj", email = "chasezjj@163.com"},
 ]
 keywords = ["health", "garmin", "fitness", "llm", "sqlite", "dashboard"]
 classifiers = [
@@ -56,9 +56,9 @@ superhealth-pipeline = "superhealth.daily_pipeline:main"
 superhealth-goals = "superhealth.goals.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/YOUR_USERNAME/superhealth"
-Repository = "https://github.com/YOUR_USERNAME/superhealth"
-Issues = "https://github.com/YOUR_USERNAME/superhealth/issues"
+Homepage = "https://github.com/chasezjj/superhealth"
+Repository = "https://github.com/chasezjj/superhealth"
+Issues = "https://github.com/chasezjj/superhealth/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -74,7 +74,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
-ignore = ["E501"]
+ignore = ["E501", "E402"]
 
 [tool.mypy]
 python_version = "3.10"

@@ -16,7 +16,12 @@ import sys
 from datetime import date
 
 from superhealth import config as cfg
-from superhealth.database import DEFAULT_DB_PATH, get_conn, get_all_appointments, get_pending_appointments, mark_appointment_reminded
+from superhealth.database import (
+    get_all_appointments,
+    get_conn,
+    get_pending_appointments,
+    mark_appointment_reminded,
+)
 
 REMIND_THRESHOLDS = [14, 7]  # 提前提醒天数
 
@@ -43,15 +48,23 @@ def _build_wechat_message(appt: dict, days_left: int) -> str:
 
 def _send_wechat(message: str, conf) -> int:
     cmd = [
-        "openclaw", "agent",
-        "--channel", conf.wechat.channel,
-        "--to", conf.wechat.target,
-        "--message", message,
+        "openclaw",
+        "agent",
+        "--channel",
+        conf.wechat.channel,
+        "--to",
+        conf.wechat.target,
+        "--message",
+        message,
         "--deliver",
-        "--reply-channel", conf.wechat.channel,
-        "--reply-account", conf.wechat.account_id,
-        "--reply-to", conf.wechat.target,
-        "--timeout", "60",
+        "--reply-channel",
+        conf.wechat.channel,
+        "--reply-account",
+        conf.wechat.account_id,
+        "--reply-to",
+        conf.wechat.target,
+        "--timeout",
+        "60",
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.stdout:

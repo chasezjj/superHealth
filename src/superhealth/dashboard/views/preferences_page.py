@@ -67,7 +67,9 @@ def render():
 
     # ── 统计栏 ──
     if df.empty:
-        st.info("暂无学习到的偏好数据。运行 `python -m superhealth.feedback.strategy_learner` 生成。")
+        st.info(
+            "暂无学习到的偏好数据。运行 `python -m superhealth.feedback.strategy_learner` 生成。"
+        )
     else:
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -77,9 +79,10 @@ def render():
             st.metric("高置信度 (≥0.8)", high_conf)
         with col3:
             status_counts = df["status"].value_counts().to_dict()
-            st.metric("状态分布", " / ".join(
-                f"{STATUS_BADGES.get(s, s)} {c}" for s, c in status_counts.items()
-            ))
+            st.metric(
+                "状态分布",
+                " / ".join(f"{STATUS_BADGES.get(s, s)} {c}" for s, c in status_counts.items()),
+            )
 
         st.divider()
 
@@ -112,8 +115,10 @@ def _render_preference_card(row):
     with col1:
         st.markdown(f"**{key_label}** → {row['preference_value']}")
     with col2:
-        st.markdown(f"<span style='color:{conf_color}; font-weight:bold'>{conf:.0%}</span>",
-                     unsafe_allow_html=True)
+        st.markdown(
+            f"<span style='color:{conf_color}; font-weight:bold'>{conf:.0%}</span>",
+            unsafe_allow_html=True,
+        )
 
     st.progress(conf)
     caption_parts = [badge, f"证据: {evidence} 条"]

@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import io
-import tempfile
 from datetime import date, timedelta
 
 import streamlit as st
 
+from superhealth.dashboard.components.charts import chart_bp, chart_hrv_bb, chart_weight_fat
 from superhealth.dashboard.data_loader import (
     get_latest_ai_summary,
-    load_annual_checkups,
+    load_daily_health,
     load_lab_results,
     load_vitals,
-    load_daily_health,
 )
-from superhealth.dashboard.components.charts import chart_bp, chart_weight_fat, chart_hrv_bb
 
 
 def _fig_to_png_bytes(fig) -> bytes:
@@ -34,16 +32,15 @@ def _build_pdf(
     patient_name: str,
     hospital: str,
 ) -> bytes:
+    import os
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import (
-        Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-    )
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
-    import os
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     # 注册中文字体（使用系统字体）
     font_paths = [
@@ -69,15 +66,24 @@ def _build_pdf(
     font_name = "CJK" if font_registered else "Helvetica"
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4,
-                            leftMargin=2*cm, rightMargin=2*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
-    styles = getSampleStyleSheet()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=2 * cm,
+        rightMargin=2 * cm,
+        topMargin=2 * cm,
+        bottomMargin=2 * cm,
+    )
     cjk_normal = ParagraphStyle("cjk", fontName=font_name, fontSize=10, leading=16)
-    cjk_title = ParagraphStyle("cjkt", fontName=font_name, fontSize=18,
-                               leading=24, spaceAfter=8)
-    cjk_h2 = ParagraphStyle("cjkh2", fontName=font_name, fontSize=13,
-                             leading=20, spaceAfter=6, textColor=colors.darkblue)
+    cjk_title = ParagraphStyle("cjkt", fontName=font_name, fontSize=18, leading=24, spaceAfter=8)
+    cjk_h2 = ParagraphStyle(
+        "cjkh2",
+        fontName=font_name,
+        fontSize=13,
+        leading=20,
+        spaceAfter=6,
+        textColor=colors.darkblue,
+    )
 
     story = []
 
@@ -87,7 +93,7 @@ def _build_pdf(
     story.append(Paragraph(f"报告日期：{date.today()}", cjk_normal))
     story.append(Paragraph(f"数据范围：{date_start} ~ {date_end}", cjk_normal))
     story.append(Paragraph(f"就诊医院：{hospital}", cjk_normal))
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.5 * cm))
 
     days = (date_end - date_start).days + 1
 
@@ -99,28 +105,28 @@ def _build_pdf(
         story.append(Paragraph("血压趋势", cjk_h2))
         try:
             png = _fig_to_png_bytes(chart_bp(df_vitals))
-            story.append(Image(io.BytesIO(png), width=16*cm, height=6*cm))
+            story.append(Image(io.BytesIO(png), width=16 * cm, height=6 * cm))
         except Exception:
             story.append(Paragraph("（图表生成失败，请确认已安装 kaleido）", cjk_normal))
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.3 * cm))
 
     if include_weight and not df_vitals.empty and df_vitals["weight_kg"].notna().any():
         story.append(Paragraph("体重趋势", cjk_h2))
         try:
             png = _fig_to_png_bytes(chart_weight_fat(df_vitals))
-            story.append(Image(io.BytesIO(png), width=16*cm, height=6*cm))
+            story.append(Image(io.BytesIO(png), width=16 * cm, height=6 * cm))
         except Exception:
             story.append(Paragraph("（图表生成失败）", cjk_normal))
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.3 * cm))
 
     if include_hrv and not df_dh.empty:
         story.append(Paragraph("心率变异 & 身体电量趋势", cjk_h2))
         try:
             png = _fig_to_png_bytes(chart_hrv_bb(df_dh))
-            story.append(Image(io.BytesIO(png), width=16*cm, height=6*cm))
+            story.append(Image(io.BytesIO(png), width=16 * cm, height=6 * cm))
         except Exception:
             story.append(Paragraph("（图表生成失败）", cjk_normal))
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.3 * cm))
 
     # 化验对比表（近3次）
     if include_lab:
@@ -136,9 +142,8 @@ def _build_pdf(
         ]
         table_data = [["指标", "第3次", "第2次", "最新值", "单位", "参考范围"]]
         for item_name, item_code in KEY_ITEMS:
-            mask = (
-                df_lab["item_name"].str.contains(item_name, case=False, na=False)
-                | (df_lab["item_code"].str.upper() == item_code.upper())
+            mask = df_lab["item_name"].str.contains(item_name, case=False, na=False) | (
+                df_lab["item_code"].str.upper() == item_code.upper()
             )
             sub = df_lab[mask].sort_values("date").tail(3)
             vals = sub["value"].tolist()
@@ -154,16 +159,20 @@ def _build_pdf(
             row = [item_name] + [str(v) if v != "—" else "—" for v in vals] + [unit, ref]
             table_data.append(row)
 
-        tbl = Table(table_data, colWidths=[3.5*cm, 2.5*cm, 2.5*cm, 2.5*cm, 2*cm, 3*cm])
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
-            ("FONTNAME", (0, 0), (-1, -1), font_name),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.lightyellow]),
-        ]))
+        tbl = Table(table_data, colWidths=[3.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2 * cm, 3 * cm])
+        tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
+                    ("FONTNAME", (0, 0), (-1, -1), font_name),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.lightyellow]),
+                ]
+            )
+        )
         story.append(tbl)
-        story.append(Spacer(1, 0.3*cm))
+        story.append(Spacer(1, 0.3 * cm))
 
     # AI 摘要
     if include_ai:
@@ -185,8 +194,7 @@ def render():
             patient_name = st.text_input("姓名", value="本人")
             hospital = st.text_input("就诊医院", value="")
         with col2:
-            date_start = st.date_input("数据开始日期",
-                                       value=date.today() - timedelta(days=90))
+            date_start = st.date_input("数据开始日期", value=date.today() - timedelta(days=90))
             date_end = st.date_input("数据截止日期", value=date.today())
 
         st.markdown("**选择报告章节**")

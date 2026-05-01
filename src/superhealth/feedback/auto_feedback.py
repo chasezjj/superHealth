@@ -66,7 +66,6 @@ def compute_quality_score(
     return 0.30 * c + 0.25 * g + 0.25 * e + 0.20 * r
 
 
-
 def _get_readiness(conn, yesterday: str) -> str | None:
     """用 RecoveryModel 重新评估昨天的 readiness，返回 readiness 字符串或 None。
 
@@ -117,8 +116,9 @@ def _judge_compliance_by_llm(
     调用失败返回 None。
     """
     try:
-        from superhealth.config import load as load_cfg
         import anthropic
+
+        from superhealth.config import load as load_cfg
 
         cfg = load_cfg()
         claude_cfg = cfg.claude
@@ -180,16 +180,19 @@ def _judge_compliance_by_llm(
 
         resp = client.messages.create(
             model=claude_cfg.model,
-            max_tokens=getattr(claude_cfg, 'max_tokens', 2048) or 2048,
+            max_tokens=getattr(claude_cfg, "max_tokens", 2048) or 2048,
             messages=[{"role": "user", "content": prompt}],
         )
         text_blocks = [b for b in resp.content if b.type == "text"]
         if not text_blocks:
-            log.warning("compliance LLM 无 TextBlock 返回，content types: %s", [b.type for b in resp.content])
+            log.warning(
+                "compliance LLM 无 TextBlock 返回，content types: %s",
+                [b.type for b in resp.content],
+            )
             return None
         result = text_blocks[0].text.strip()
         # 提取数字
-        match = re.search(r'\d+', result)
+        match = re.search(r"\d+", result)
         if match:
             score = int(match.group())
             return max(0, min(100, score))  # 限制在 0-100
@@ -221,10 +224,14 @@ def run(target_date: str = None, db_path: Path = DB_PATH) -> bool:
         existing = conn.execute(
             """SELECT id, compliance, recommendation_type, recommendation_content, user_feedback, user_rating, tracked_metrics FROM recommendation_feedback
                WHERE date = ? AND recommendation_type IN ('exercise', 'recovery', 'rest')""",
-            (yesterday,)
+            (yesterday,),
         ).fetchone()
         if existing and existing["compliance"] is not None:
-            log.info("auto_feedback: %s 已完成 compliance=%d，计算 quality_score", yesterday, existing["compliance"])
+            log.info(
+                "auto_feedback: %s 已完成 compliance=%d，计算 quality_score",
+                yesterday,
+                existing["compliance"],
+            )
             rec_type = existing["recommendation_type"]
             _write_quality_score(conn, yesterday, rec_type, existing["compliance"], existing)
             return False
@@ -232,7 +239,7 @@ def run(target_date: str = None, db_path: Path = DB_PATH) -> bool:
         # ── 1. 昨天的运动记录 ──
         exercise_rows = conn.execute(
             "SELECT name, duration_seconds, type_key, details, avg_hr, max_hr, distance_meters, calories FROM exercises WHERE date = ? ORDER BY id",
-            (yesterday,)
+            (yesterday,),
         ).fetchall()
 
         # ── 2. 昨天的步数 ──
@@ -241,8 +248,7 @@ def run(target_date: str = None, db_path: Path = DB_PATH) -> bool:
         ).fetchone()
         steps = int((steps_row["steps"] or 0) if steps_row else 0)
 
-        log.info("auto_feedback: %s steps=%d exercises=%d",
-                 yesterday, steps, len(exercise_rows))
+        log.info("auto_feedback: %s steps=%d exercises=%d", yesterday, steps, len(exercise_rows))
 
         # ── 3. 整理 actual_action ──
         actual_action = _build_actual_action(exercise_rows) or "未运动"
@@ -307,7 +313,9 @@ def run(target_date: str = None, db_path: Path = DB_PATH) -> bool:
 
         log.info(
             "auto_feedback: %s 写入完成 compliance=%d action=%s",
-            yesterday, compliance, actual_action,
+            yesterday,
+            compliance,
+            actual_action,
         )
 
         # ── 6. 计算 quality_score ──
@@ -346,7 +354,8 @@ def _write_quality_score(conn, yesterday, rec_type, compliance, existing):
         )
         log.info(
             "auto_feedback: %s quality_score=%.3f (c=%d, g=%s, e=%s, r=%s)",
-            yesterday, score,
+            yesterday,
+            score,
             compliance,
             f"{goal_progress_norm:.2f}" if goal_progress_norm is not None else "N/A",
             f"{composite_score:.3f}" if composite_score is not None else "N/A",
@@ -358,6 +367,7 @@ def _write_quality_score(conn, yesterday, rec_type, compliance, existing):
 
 def main():
     import argparse
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     ap = argparse.ArgumentParser(description="自动填充昨日反馈数据")
     ap.add_argument("--date", type=str, help="目标日期 YYYY-MM-DD，默认昨天")

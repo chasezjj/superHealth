@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
-
-import streamlit as st
-import plotly.graph_objects as go
+from datetime import date
 from pathlib import Path
+
+import plotly.graph_objects as go
+import streamlit as st
+
+from superhealth.goals.manager import GoalManager
 
 DB_PATH = Path(__file__).parent.parent.parent.parent.parent / "health.db"
 
 
 def _get_conn():
     from superhealth import database as db
+
     return db.get_conn(DB_PATH)
 
 
@@ -43,7 +46,9 @@ def render():
             with col1:
                 p_label = priority_labels.get(goal["priority"], f"P{goal['priority']}")
                 st.subheader(f"{p_label}：{goal['name']}")
-                st.caption(f"{label} · {direction_labels.get(goal['direction'], goal['direction'])}")
+                st.caption(
+                    f"{label} · {direction_labels.get(goal['direction'], goal['direction'])}"
+                )
             with col2:
                 if goal.get("baseline_value") is not None and goal.get("target_value") is not None:
                     st.metric(
@@ -94,29 +99,37 @@ def _render_goal_trend(mgr: "GoalManager", goal: dict):
     values = [p["current_value"] for p in reversed(progress)]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=dates, y=values, mode="lines+markers",
-        name="当前值", line=dict(width=2),
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=values,
+            mode="lines+markers",
+            name="当前值",
+            line=dict(width=2),
+        )
+    )
 
     # 基线和目标参考线
     if goal.get("baseline_value") is not None:
         fig.add_hline(
             y=goal["baseline_value"],
-            line_dash="dash", line_color="gray",
+            line_dash="dash",
+            line_color="gray",
             annotation_text="基线",
         )
     if goal.get("target_value") is not None:
         fig.add_hline(
             y=goal["target_value"],
-            line_dash="dash", line_color="green",
+            line_dash="dash",
+            line_color="green",
             annotation_text="目标",
         )
 
     fig.update_layout(
         height=250,
         margin=dict(l=40, r=20, t=20, b=30),
-        xaxis_title="", yaxis_title="",
+        xaxis_title="",
+        yaxis_title="",
     )
     st.plotly_chart(fig, use_container_width=True)
 

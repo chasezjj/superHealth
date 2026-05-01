@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-from datetime import date
 from pathlib import Path
 
 from superhealth import database as db

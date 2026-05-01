@@ -5,22 +5,18 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from superhealth.dashboard.components.charts import (
+    chart_medical_timeline,
+    chart_unified_lab_trend,
+)
 from superhealth.dashboard.data_loader import (
     load_annual_checkups,
     load_eye_exams,
     load_lab_results,
-    load_unified_lab_trends,
     load_multiple_unified_trends,
-    get_available_lab_metrics,
-)
-from superhealth.dashboard.components.charts import (
-    chart_lab_item,
-    chart_medical_timeline,
-    chart_unified_lab_trend,
-    chart_multi_metric_trends,
+    load_unified_lab_trends,
 )
 from superhealth.database import _LIVER_KIDNEY_METRICS
-
 
 # 指标显示配置（用于Dashboard）
 METRIC_DISPLAY_CONFIG = {
@@ -90,12 +86,6 @@ METRIC_DISPLAY_CONFIG = {
         "color": "#1ABC9C",
         "priority": 11,
     },
-    "total_cholesterol": {
-        "label": "总胆固醇",
-        "icon": "📊",
-        "color": "#C875D1",
-        "priority": 7,
-    },
 }
 
 
@@ -143,24 +133,39 @@ def render():
     with col_eye2:
         if show_eye and not df_eye.empty:
             import plotly.graph_objects as go
+
             fig = go.Figure()
-            fig.add_hrect(y0=0, y1=21, fillcolor="rgba(100,200,100,0.08)",
-                          line_width=0, annotation_text="正常 <21 mmHg",
-                          annotation_position="top left")
+            fig.add_hrect(
+                y0=0,
+                y1=21,
+                fillcolor="rgba(100,200,100,0.08)",
+                line_width=0,
+                annotation_text="正常 <21 mmHg",
+                annotation_position="top left",
+            )
             if df_eye["od_iop"].notna().any():
-                fig.add_trace(go.Scatter(
-                    x=df_eye["date"], y=df_eye["od_iop"],
-                    name="右眼 IOP", mode="lines+markers",
-                    line=dict(color="#4F8EF7"),
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=df_eye["date"],
+                        y=df_eye["od_iop"],
+                        name="右眼 IOP",
+                        mode="lines+markers",
+                        line=dict(color="#4F8EF7"),
+                    )
+                )
             if df_eye["os_iop"].notna().any():
-                fig.add_trace(go.Scatter(
-                    x=df_eye["date"], y=df_eye["os_iop"],
-                    name="左眼 IOP", mode="lines+markers",
-                    line=dict(color="#F7A84F"),
-                ))
-            fig.update_layout(title="眼压（IOP）", height=280,
-                              yaxis_title="mmHg", hovermode="x unified")
+                fig.add_trace(
+                    go.Scatter(
+                        x=df_eye["date"],
+                        y=df_eye["os_iop"],
+                        name="左眼 IOP",
+                        mode="lines+markers",
+                        line=dict(color="#F7A84F"),
+                    )
+                )
+            fig.update_layout(
+                title="眼压（IOP）", height=280, yaxis_title="mmHg", hovermode="x unified"
+            )
             st.plotly_chart(fig, width="stretch")
 
     # 就医时间线
@@ -195,7 +200,18 @@ def render():
 def _render_merged_view(years: int):
     """合并视图：三列显示关键指标。"""
     # 加载关键指标数据
-    key_metrics = ["uric_acid", "creatinine", "urea", "cystatin_c", "alt", "ast", "ggt", "ldl_c", "triglyceride", "total_cholesterol"]
+    key_metrics = [
+        "uric_acid",
+        "creatinine",
+        "urea",
+        "cystatin_c",
+        "alt",
+        "ast",
+        "ggt",
+        "ldl_c",
+        "triglyceride",
+        "total_cholesterol",
+    ]
     data = {}
     for metric in key_metrics:
         df = load_unified_lab_trends(metric, years)
@@ -333,7 +349,10 @@ def _render_single_metric_view(years: int):
     """分指标查看：用户选择一个指标详细查看。"""
     # 指标选择
     available_metrics = list(METRIC_DISPLAY_CONFIG.keys())
-    metric_labels = [f"{METRIC_DISPLAY_CONFIG[m]['icon']} {METRIC_DISPLAY_CONFIG[m]['label']}" for m in available_metrics]
+    metric_labels = [
+        f"{METRIC_DISPLAY_CONFIG[m]['icon']} {METRIC_DISPLAY_CONFIG[m]['label']}"
+        for m in available_metrics
+    ]
 
     selected_idx = st.selectbox(
         "选择指标",
@@ -370,20 +389,19 @@ def _render_single_metric_view(years: int):
     with col2:
         st.metric("平均值", f"{df['value'].mean():.2f}")
     with col3:
-        delta = df.iloc[-1]['value'] - df.iloc[0]['value'] if len(df) > 1 else 0
+        delta = df.iloc[-1]["value"] - df.iloc[0]["value"] if len(df) > 1 else 0
         st.metric("总变化", f"{delta:+.2f}")
     with col4:
-        abnormal_count = df['is_abnormal'].sum() if 'is_abnormal' in df.columns else 0
+        abnormal_count = df["is_abnormal"].sum() if "is_abnormal" in df.columns else 0
         st.metric("异常记录", f"{int(abnormal_count)}/{len(df)}")
 
     # 数据表格
     with st.expander("📋 查看原始数据"):
         display_df = df.copy()
-        display_df['date'] = display_df['date'].dt.strftime('%Y-%m-%d')
-        display_df['source'] = display_df['source'].map({
-            'lab_results': '门诊化验',
-            'annual_checkups': '年度体检'
-        })
+        display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+        display_df["source"] = display_df["source"].map(
+            {"lab_results": "门诊化验", "annual_checkups": "年度体检"}
+        )
         st.dataframe(display_df, use_container_width=True)
 
 
@@ -397,7 +415,9 @@ def _render_multi_metric_view(years: int):
         "选择要对比的指标（最多4个）",
         options=available_metrics,
         default=default_selection,
-        format_func=lambda x: f"{METRIC_DISPLAY_CONFIG[x]['icon']} {METRIC_DISPLAY_CONFIG[x]['label']}",
+        format_func=lambda x: (
+            f"{METRIC_DISPLAY_CONFIG[x]['icon']} {METRIC_DISPLAY_CONFIG[x]['label']}"
+        ),
         max_selections=4,
     )
 
@@ -419,8 +439,12 @@ def _render_multi_metric_view(years: int):
 
     # 每个指标一个子图
     fig = make_subplots(
-        rows=len(selected), cols=1,
-        subplot_titles=[f"{METRIC_DISPLAY_CONFIG[m]['icon']} {METRIC_DISPLAY_CONFIG[m]['label']}" for m in selected],
+        rows=len(selected),
+        cols=1,
+        subplot_titles=[
+            f"{METRIC_DISPLAY_CONFIG[m]['icon']} {METRIC_DISPLAY_CONFIG[m]['label']}"
+            for m in selected
+        ],
         vertical_spacing=0.1,
     )
 
@@ -430,7 +454,7 @@ def _render_multi_metric_view(years: int):
             continue
 
         config = _LIVER_KIDNEY_METRICS[metric]
-        color = METRIC_DISPLAY_CONFIG[metric]['color']
+        color = METRIC_DISPLAY_CONFIG[metric]["color"]
 
         # 分离不同数据源
         lab_data = df[df["source"] == "lab_results"]
@@ -438,35 +462,46 @@ def _render_multi_metric_view(years: int):
 
         # 年度体检
         if not checkup_data.empty:
-            fig.add_trace(go.Scatter(
-                x=checkup_data["date"],
-                y=checkup_data["value"],
-                mode="lines+markers",
-                name=f"{METRIC_DISPLAY_CONFIG[metric]['label']} - 体检",
-                line=dict(color=color, width=2),
-                marker=dict(size=10, symbol="circle"),
-                showlegend=False,
-            ), row=i, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=checkup_data["date"],
+                    y=checkup_data["value"],
+                    mode="lines+markers",
+                    name=f"{METRIC_DISPLAY_CONFIG[metric]['label']} - 体检",
+                    line=dict(color=color, width=2),
+                    marker=dict(size=10, symbol="circle"),
+                    showlegend=False,
+                ),
+                row=i,
+                col=1,
+            )
 
         # 门诊化验
         if not lab_data.empty:
-            fig.add_trace(go.Scatter(
-                x=lab_data["date"],
-                y=lab_data["value"],
-                mode="lines+markers",
-                name=f"{METRIC_DISPLAY_CONFIG[metric]['label']} - 门诊",
-                line=dict(color=color, width=2, dash="dot"),
-                marker=dict(size=9, symbol="diamond"),
-                showlegend=False,
-            ), row=i, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=lab_data["date"],
+                    y=lab_data["value"],
+                    mode="lines+markers",
+                    name=f"{METRIC_DISPLAY_CONFIG[metric]['label']} - 门诊",
+                    line=dict(color=color, width=2, dash="dot"),
+                    marker=dict(size=9, symbol="diamond"),
+                    showlegend=False,
+                ),
+                row=i,
+                col=1,
+            )
 
         # 参考范围
         if config.get("ref_high"):
             y0 = config.get("ref_low", 0)
             fig.add_hrect(
-                y0=y0, y1=config["ref_high"],
-                fillcolor="rgba(100,200,100,0.08)", line_width=0,
-                row=i, col=1,
+                y0=y0,
+                y1=config["ref_high"],
+                fillcolor="rgba(100,200,100,0.08)",
+                line_width=0,
+                row=i,
+                col=1,
             )
 
         # Y轴标题

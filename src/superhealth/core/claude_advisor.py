@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,8 +10,8 @@ from superhealth.config import load as load_config
 from superhealth.core.llm_advisor import BaseHealthAdvisor
 
 if TYPE_CHECKING:
-    from superhealth.core.health_profile_builder import HealthProfile
     from superhealth.core.assessment_models import AssessmentResult
+    from superhealth.core.health_profile_builder import HealthProfile
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +29,7 @@ class ClaudeHealthAdvisor(BaseHealthAdvisor):
         if self._client is None:
             try:
                 import anthropic
+
                 kwargs = {"api_key": self.claude_cfg.api_key}
                 if self.claude_cfg.base_url:
                     kwargs["base_url"] = self.claude_cfg.base_url

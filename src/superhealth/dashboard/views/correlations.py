@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import streamlit as st
 
-from superhealth.dashboard.data_loader import load_merged_for_correlation
 from superhealth.dashboard.components.charts import chart_heatmap, chart_scatter
+from superhealth.dashboard.data_loader import load_merged_for_correlation
 
 ALL_METRICS = [
-    "心率变异", "身体电量", "睡眠时长", "压力指数",
-    "静息心率", "步数", "收缩压", "舒张压",
-    "体重", "体脂率", "运动时长",
+    "心率变异",
+    "身体电量",
+    "睡眠时长",
+    "压力指数",
+    "静息心率",
+    "步数",
+    "收缩压",
+    "舒张压",
+    "体重",
+    "体脂率",
+    "运动时长",
 ]
 
 
@@ -50,8 +58,7 @@ def render():
     with col1:
         x_col = st.selectbox("X 轴", available, index=0)
     with col2:
-        y_col = st.selectbox("Y 轴", available,
-                             index=min(1, len(available) - 1))
+        y_col = st.selectbox("Y 轴", available, index=min(1, len(available) - 1))
 
     if x_col != y_col:
         st.plotly_chart(chart_scatter(df, x_col, y_col), width="stretch")

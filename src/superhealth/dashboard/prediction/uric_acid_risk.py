@@ -25,13 +25,12 @@ from superhealth.dashboard.data_loader import (
     load_weather,
 )
 
-
 # ─── 尿酸分级 ────────────────────────────────────────────────────────
 
-UA_NORMAL = 0       # ≤420
-UA_ELEVATED = 1     # 420-480（高尿酸血症，可先生活方式干预）
-UA_HIGH = 2         # 480-540（合并症时需药物治疗）
-UA_VERY_HIGH = 3    # >540（无论有无合并症均建议药物治疗）
+UA_NORMAL = 0  # ≤420
+UA_ELEVATED = 1  # 420-480（高尿酸血症，可先生活方式干预）
+UA_HIGH = 2  # 480-540（合并症时需药物治疗）
+UA_VERY_HIGH = 3  # >540（无论有无合并症均建议药物治疗）
 
 UA_GRADE_LABELS = {
     UA_NORMAL: "正常",
@@ -54,6 +53,7 @@ def _grade_ua(ua: Optional[float]) -> int:
 
 
 # ─── 合并症评估 ──────────────────────────────────────────────────────
+
 
 def _check_hypertension(df_vitals: pd.DataFrame) -> tuple[bool, str]:
     """高血压合并症：最新收缩压 ≥140 或舒张压 ≥90。"""
@@ -117,7 +117,9 @@ def _check_diabetes_for_ua(df_lab: pd.DataFrame) -> tuple[bool, str]:
     """糖尿病合并症。"""
     if df_lab.empty:
         return False, ""
-    fg = df_lab[df_lab["item_name"].str.contains("空腹血糖|FBG|GLU|Fasting Glucose", case=False, na=False)]
+    fg = df_lab[
+        df_lab["item_name"].str.contains("空腹血糖|FBG|GLU|Fasting Glucose", case=False, na=False)
+    ]
     if not fg.empty:
         val = float(fg["value"].iloc[-1])
         if val >= 7.0:
@@ -127,9 +129,11 @@ def _check_diabetes_for_ua(df_lab: pd.DataFrame) -> tuple[bool, str]:
 
 # ─── 痛风发作诱因 ─────────────────────────────────────────────────────
 
+
 def _check_kidney_stones(df_lab: pd.DataFrame) -> tuple[bool, str]:
     """肾结石/钙化（超声发现）→ 尿酸排泄障碍 + 痛风石风险。"""
-    from superhealth.database import get_conn, DEFAULT_DB_PATH
+    from superhealth.database import DEFAULT_DB_PATH, get_conn
+
     with get_conn(DEFAULT_DB_PATH) as conn:
         row = conn.execute(
             "SELECT conclusion FROM kidney_ultrasounds ORDER BY date DESC LIMIT 1"
@@ -186,6 +190,7 @@ def _check_rapid_weight_loss(df_vitals: pd.DataFrame) -> tuple[bool, str]:
 
 
 # ─── 尿酸趋势 ────────────────────────────────────────────────────────
+
 
 def _check_ua_trend(df_lab: pd.DataFrame) -> tuple[bool, str]:
     """尿酸上升趋势：近3次化验斜率 >30 μmol/L/次。"""
@@ -268,6 +273,7 @@ def _risk_to_score(risk_level: str, ua: Optional[float]) -> float:
 
 
 # ─── 主计算函数 ──────────────────────────────────────────────────────
+
 
 def compute(days: int = 90) -> dict:
     """基于中国高尿酸血症与痛风诊疗指南计算风险分层。"""

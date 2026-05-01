@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -32,19 +31,21 @@ MEDICAL_DIR = REPO_ROOT / "medical-records"
 @dataclass
 class BodyComposition:
     """体成分评估。"""
+
     bmi: Optional[float] = None
-    bmi_status: str = "unknown"          # underweight/normal/overweight/obese
+    bmi_status: str = "unknown"  # underweight/normal/overweight/obese
     body_fat_pct: Optional[float] = None
-    body_fat_status: str = "unknown"     # low/normal/high
+    body_fat_status: str = "unknown"  # low/normal/high
     weight_kg: Optional[float] = None
-    assessment: str = ""                 # 综合判断描述
-    target: str = "maintain"            # muscle_gain/fat_loss/maintain/recomposition
-    priority_training: str = "balanced" # resistance/cardio/balanced
+    assessment: str = ""  # 综合判断描述
+    target: str = "maintain"  # muscle_gain/fat_loss/maintain/recomposition
+    priority_training: str = "balanced"  # resistance/cardio/balanced
 
 
 @dataclass
 class HealthProfile:
     """结构化健康画像。"""
+
     # 已确诊疾病
     conditions: list[str] = field(default_factory=list)
     # 历史疾病（已缓解但需关注）
@@ -75,11 +76,13 @@ class HealthProfile:
     active_goals: list[dict] = field(default_factory=list)
 
     def add_source(self, category: str, finding: str, source: str):
-        self.profile_sources.append({
-            "category": category,
-            "finding": finding,
-            "source": source,
-        })
+        self.profile_sources.append(
+            {
+                "category": category,
+                "finding": finding,
+                "source": source,
+            }
+        )
 
 
 class HealthProfileBuilder:
@@ -126,7 +129,9 @@ class HealthProfileBuilder:
             path = MEDICAL_DIR / filename
             if path.exists():
                 profile.conditions.append(code)
-                profile.add_source("长期管理", f"{label}（病历记录）", f"medical-records/{filename}")
+                profile.add_source(
+                    "长期管理", f"{label}（病历记录）", f"medical-records/{filename}"
+                )
 
         # 从体检报告检测历史血脂异常（通过 SQLite annual_checkups）
         try:
@@ -141,9 +146,7 @@ class HealthProfileBuilder:
                     profile.history_conditions.append("dyslipidemia_history")
                     dates = [r["checkup_date"] for r in rows]
                     profile.add_source(
-                        "历史状况",
-                        f"血脂异常（{dates[0]}–{dates[-1]}，曾干预）",
-                        "annual_checkups"
+                        "历史状况", f"血脂异常（{dates[0]}–{dates[-1]}，曾干预）", "annual_checkups"
                     )
         except Exception as e:
             log.debug("血脂历史查询失败: %s", e)
@@ -161,9 +164,7 @@ class HealthProfileBuilder:
                     if "kidney_stone_history" not in profile.history_conditions:
                         profile.history_conditions.append("kidney_stone_history")
                     profile.add_source(
-                        "历史状况",
-                        f"肾结石（{rows[0]['date']}起，需随访）",
-                        "kidney_ultrasounds"
+                        "历史状况", f"肾结石（{rows[0]['date']}起，需随访）", "kidney_ultrasounds"
                     )
         except Exception as e:
             log.debug("肾结石历史查询失败: %s", e)
@@ -174,12 +175,14 @@ class HealthProfileBuilder:
             with self._get_conn() as conn:
                 meds = db.query_active_medications(conn)
                 for m in meds:
-                    profile.active_medications.append({
-                        "name": m["name"],
-                        "condition": m["condition"],
-                        "dosage": m.get("dosage", ""),
-                        "notes": m.get("note", ""),
-                    })
+                    profile.active_medications.append(
+                        {
+                            "name": m["name"],
+                            "condition": m["condition"],
+                            "dosage": m.get("dosage", ""),
+                            "notes": m.get("note", ""),
+                        }
+                    )
                 if meds:
                     names = "、".join(m["name"] for m in meds)
                     profile.add_source("当前用药", names, "medications")
@@ -204,7 +207,7 @@ class HealthProfileBuilder:
                     profile.add_source(
                         "当前关注",
                         f"尿酸 {ua_val} μmol/L（{latest['date']}，{ua_status}）",
-                        "lab_results"
+                        "lab_results",
                     )
 
                 # 最近血脂全项
@@ -225,13 +228,13 @@ class HealthProfileBuilder:
                     profile.add_source(
                         "当前关注",
                         f"LDL {ldl_latest:.2f} mmol/L（偏高，{ldl_date}）",
-                        "lab_results"
+                        "lab_results",
                     )
                 elif ldl_latest:
                     profile.add_source(
                         "当前关注",
                         f"LDL {ldl_latest:.2f} mmol/L（{ldl_date}，正常范围）",
-                        "lab_results"
+                        "lab_results",
                     )
         except Exception as e:
             log.debug("化验趋势查询失败: %s", e)
@@ -240,8 +243,10 @@ class HealthProfileBuilder:
         """从 vitals 检测血压趋势。单次查询 30d 数据，7d 子集在内存过滤。"""
         try:
             end = reference_date
-            start_30d = (datetime.fromisoformat(reference_date) - timedelta(days=30)).isoformat()[:10]
-            start_7d  = (datetime.fromisoformat(reference_date) - timedelta(days=7)).isoformat()[:10]
+            start_30d = (datetime.fromisoformat(reference_date) - timedelta(days=30)).isoformat()[
+                :10
+            ]
+            start_7d = (datetime.fromisoformat(reference_date) - timedelta(days=7)).isoformat()[:10]
 
             with self._get_conn() as conn:
                 rows_30d = conn.execute(
@@ -249,11 +254,11 @@ class HealthProfileBuilder:
                        WHERE measured_at >= ? AND measured_at < ? || 'T23:59:59'
                          AND systolic IS NOT NULL
                        ORDER BY measured_at""",
-                    (start_30d + 'T00:00:00', end)
+                    (start_30d + "T00:00:00", end),
                 ).fetchall()
 
             # 7d 子集在内存过滤，避免重复查询
-            rows_7d = [r for r in rows_30d if r["measured_at"] >= start_7d + 'T00:00:00']
+            rows_7d = [r for r in rows_30d if r["measured_at"] >= start_7d + "T00:00:00"]
 
             if rows_7d:
                 profile.risk_factors.append("has_recent_bp_data")
@@ -273,7 +278,7 @@ class HealthProfileBuilder:
                     profile.add_source(
                         "当前关注",
                         f"血压上升趋势（7天均值 {avg_7d:.0f} vs 30天均值 {avg_30d:.0f}）",
-                        "vitals 趋势分析"
+                        "vitals 趋势分析",
                     )
                 elif avg_7d < avg_30d - 5:
                     profile.trends["bp"] = "falling"
@@ -286,9 +291,7 @@ class HealthProfileBuilder:
                     if "bp_trending_up" not in profile.risk_factors:
                         profile.risk_factors.append("bp_elevated")
                     profile.add_source(
-                        "当前关注",
-                        f"近7天有 {high_count} 次收缩压≥130mmHg",
-                        "vitals"
+                        "当前关注", f"近7天有 {high_count} 次收缩压≥130mmHg", "vitals"
                     )
         except Exception as e:
             log.debug("血压趋势查询失败: %s", e)
@@ -296,16 +299,20 @@ class HealthProfileBuilder:
     def _load_daily_health_aggregates(self, profile: HealthProfile, reference_date: str):
         """单次查询填充压力/睡眠/步数/静息心率趋势（原 4 个独立连接合并为 1 次）。"""
         try:
-            yesterday = (datetime.fromisoformat(reference_date) - timedelta(days=1)).isoformat()[:10]
-            start_90d = (datetime.fromisoformat(reference_date) - timedelta(days=90)).isoformat()[:10]
-            start_7d  = (datetime.fromisoformat(reference_date) - timedelta(days=6)).isoformat()[:10]
+            yesterday = (datetime.fromisoformat(reference_date) - timedelta(days=1)).isoformat()[
+                :10
+            ]
+            start_90d = (datetime.fromisoformat(reference_date) - timedelta(days=90)).isoformat()[
+                :10
+            ]
+            start_7d = (datetime.fromisoformat(reference_date) - timedelta(days=6)).isoformat()[:10]
 
             with self._get_conn() as conn:
                 rows = conn.execute(
                     """SELECT date, stress_average, sleep_score, steps, hr_resting, hrv_last_night_avg, bb_at_wake
                        FROM daily_health
                        WHERE date >= ? AND date <= ?""",
-                    (start_90d, reference_date)
+                    (start_90d, reference_date),
                 ).fetchall()
 
             if not rows:
@@ -313,21 +320,32 @@ class HealthProfileBuilder:
 
             # 分组：90天（不含今日）和 7 天（含今日）
             rows_90d = [r for r in rows if r["date"] <= yesterday]
-            rows_7d  = [r for r in rows if r["date"] >= start_7d]
+            rows_7d = [r for r in rows if r["date"] >= start_7d]
 
             def _agg(vals):
-                return round(mean(vals), 1), round(pstdev(vals), 2) if len(vals) >= 2 else (round(mean(vals), 1), 0.0)
+                return round(mean(vals), 1), round(pstdev(vals), 2) if len(vals) >= 2 else (
+                    round(mean(vals), 1),
+                    0.0,
+                )
 
             # ── 压力趋势 ──
             stress_yesterday = next(
-                (r["stress_average"] for r in rows if r["date"] == yesterday and r["stress_average"] is not None),
-                None
+                (
+                    r["stress_average"]
+                    for r in rows
+                    if r["date"] == yesterday and r["stress_average"] is not None
+                ),
+                None,
             )
             if stress_yesterday is not None:
                 profile.trends["stress_yesterday"] = round(stress_yesterday, 1)
 
-            stress_90d_vals = [r["stress_average"] for r in rows_90d if r["stress_average"] is not None]
-            stress_7d_vals  = [r["stress_average"] for r in rows_7d  if r["stress_average"] is not None]
+            stress_90d_vals = [
+                r["stress_average"] for r in rows_90d if r["stress_average"] is not None
+            ]
+            stress_7d_vals = [
+                r["stress_average"] for r in rows_7d if r["stress_average"] is not None
+            ]
             if stress_90d_vals:
                 mu, std = _agg(stress_90d_vals)
                 profile.trends["stress_90d_avg"] = mu
@@ -343,7 +361,7 @@ class HealthProfileBuilder:
 
             # ── 睡眠趋势 ──
             sleep_90d_vals = [r["sleep_score"] for r in rows_90d if r["sleep_score"] is not None]
-            sleep_7d_vals  = [r["sleep_score"] for r in rows_7d  if r["sleep_score"] is not None]
+            sleep_7d_vals = [r["sleep_score"] for r in rows_7d if r["sleep_score"] is not None]
             if sleep_90d_vals:
                 mu, std = _agg(sleep_90d_vals)
                 profile.trends["sleep_90d_avg"] = mu
@@ -354,7 +372,7 @@ class HealthProfileBuilder:
             # ── 步数趋势 ──
             # 排除今日（当日数据不完整），仅用昨日及之前的7天数据
             rows_7d_steps = [r for r in rows_7d if r["date"] < reference_date]
-            steps_7d_vals  = [r["steps"] for r in rows_7d_steps if r["steps"] is not None]
+            steps_7d_vals = [r["steps"] for r in rows_7d_steps if r["steps"] is not None]
             steps_90d_vals = [r["steps"] for r in rows_90d if r["steps"] is not None]
             if steps_7d_vals:
                 profile.trends["steps_7d_avg"] = round(mean(steps_7d_vals))
@@ -371,8 +389,12 @@ class HealthProfileBuilder:
                 profile.trends["rhr_90d_std"] = std
 
             # ── HRV 趋势 ──
-            hrv_90d_vals = [r["hrv_last_night_avg"] for r in rows_90d if r["hrv_last_night_avg"] is not None]
-            hrv_7d_vals  = [r["hrv_last_night_avg"] for r in rows_7d  if r["hrv_last_night_avg"] is not None]
+            hrv_90d_vals = [
+                r["hrv_last_night_avg"] for r in rows_90d if r["hrv_last_night_avg"] is not None
+            ]
+            hrv_7d_vals = [
+                r["hrv_last_night_avg"] for r in rows_7d if r["hrv_last_night_avg"] is not None
+            ]
             if hrv_90d_vals:
                 mu, std = _agg(hrv_90d_vals)
                 profile.trends["hrv_90d_avg"] = mu
@@ -382,7 +404,7 @@ class HealthProfileBuilder:
 
             # ── Body Battery 趋势 ──
             bb_90d_vals = [r["bb_at_wake"] for r in rows_90d if r["bb_at_wake"] is not None]
-            bb_7d_vals  = [r["bb_at_wake"] for r in rows_7d  if r["bb_at_wake"] is not None]
+            bb_7d_vals = [r["bb_at_wake"] for r in rows_7d if r["bb_at_wake"] is not None]
             if bb_90d_vals:
                 mu, std = _agg(bb_90d_vals)
                 profile.trends["bb_90d_avg"] = mu
@@ -426,12 +448,14 @@ class HealthProfileBuilder:
         try:
             with self._get_conn() as conn:
                 # 最新体重/体脂
-                start_7d = (datetime.fromisoformat(reference_date) - timedelta(days=7)).isoformat()[:10]
+                start_7d = (datetime.fromisoformat(reference_date) - timedelta(days=7)).isoformat()[
+                    :10
+                ]
                 rows = conn.execute(
                     """SELECT weight_kg, body_fat_pct FROM vitals
                        WHERE measured_at >= ? AND weight_kg IS NOT NULL
                        ORDER BY measured_at DESC LIMIT 1""",
-                    (start_7d + 'T00:00:00',)
+                    (start_7d + "T00:00:00",),
                 ).fetchall()
 
                 if rows:
@@ -453,7 +477,7 @@ class HealthProfileBuilder:
         # 计算 BMI
         if bc.weight_kg and profile.height_cm:
             h_m = profile.height_cm / 100
-            bc.bmi = round(bc.weight_kg / (h_m ** 2), 1)
+            bc.bmi = round(bc.weight_kg / (h_m**2), 1)
 
         # BMI 分类（亚洲标准）
         if bc.bmi is not None:
@@ -483,27 +507,21 @@ class HealthProfileBuilder:
             bc.target = "muscle_gain"
             bc.priority_training = "resistance"
             profile.add_source(
-                "体成分",
-                f"BMI {bc.bmi}（偏瘦），优先增肌训练",
-                "vitals + annual_checkups"
+                "体成分", f"BMI {bc.bmi}（偏瘦），优先增肌训练", "vitals + annual_checkups"
             )
         elif bc.bmi_status == "normal" and bc.body_fat_status in ("high", "very_high"):
             bc.assessment = "隐性肥胖型（BMI正常但体脂偏高）"
             bc.target = "recomposition"
             bc.priority_training = "balanced"
             profile.add_source(
-                "体成分",
-                f"体脂率 {bc.body_fat_pct}%（偏高），建议减脂增肌",
-                "vitals"
+                "体成分", f"体脂率 {bc.body_fat_pct}%（偏高），建议减脂增肌", "vitals"
             )
         elif bc.bmi_status in ("overweight", "obese"):
             bc.assessment = "超重/肥胖型"
             bc.target = "fat_loss"
             bc.priority_training = "cardio"
             profile.add_source(
-                "体成分",
-                f"BMI {bc.bmi}（超重），优先有氧减脂",
-                "vitals + annual_checkups"
+                "体成分", f"BMI {bc.bmi}（超重），优先有氧减脂", "vitals + annual_checkups"
             )
         elif bc.bmi is not None:
             bc.assessment = "体重正常"
@@ -537,7 +555,7 @@ class HealthProfileBuilder:
             profile.add_source(
                 "基因特征",
                 f"肿瘤易感基因变异：{', '.join(found_genes)}（详见基因报告）",
-                "genetic-data/gene-testing-2024.md"
+                "genetic-data/gene-testing-2024.md",
             )
 
     def _load_learned_preferences(self, profile: HealthProfile):
@@ -564,31 +582,33 @@ class HealthProfileBuilder:
     def _load_workday_patterns(self, profile: HealthProfile, reference_date: str):
         """分析工作日 vs 休息日的血压/压力差异，识别工作日综合征。"""
         try:
-            start_60d = (datetime.fromisoformat(reference_date) - timedelta(days=60)).isoformat()[:10]
+            start_60d = (datetime.fromisoformat(reference_date) - timedelta(days=60)).isoformat()[
+                :10
+            ]
 
             with self._get_conn() as conn:
                 # 按工作日/周末分组查询血压
                 bp_rows = conn.execute(
-                    '''SELECT systolic, strftime('%w', measured_at) as weekday
+                    """SELECT systolic, strftime('%w', measured_at) as weekday
                        FROM vitals
-                       WHERE measured_at >= ? AND systolic IS NOT NULL''',
-                    (start_60d + 'T00:00:00',)
+                       WHERE measured_at >= ? AND systolic IS NOT NULL""",
+                    (start_60d + "T00:00:00",),
                 ).fetchall()
 
                 # 按工作日/周末分组查询压力
                 stress_rows = conn.execute(
-                    '''SELECT stress_average, strftime('%w', date) as weekday
+                    """SELECT stress_average, strftime('%w', date) as weekday
                        FROM daily_health
-                       WHERE date >= ? AND stress_average IS NOT NULL''',
-                    (start_60d,)
+                       WHERE date >= ? AND stress_average IS NOT NULL""",
+                    (start_60d,),
                 ).fetchall()
 
             patterns = {}
 
             # 分析血压差异
             if bp_rows:
-                weekday_bp = [r["systolic"] for r in bp_rows if r["weekday"] not in ('0', '6')]
-                weekend_bp = [r["systolic"] for r in bp_rows if r["weekday"] in ('0', '6')]
+                weekday_bp = [r["systolic"] for r in bp_rows if r["weekday"] not in ("0", "6")]
+                weekend_bp = [r["systolic"] for r in bp_rows if r["weekday"] in ("0", "6")]
 
                 if weekday_bp and weekend_bp:
                     weekday_avg = mean(weekday_bp)
@@ -601,8 +621,12 @@ class HealthProfileBuilder:
 
             # 分析压力差异
             if stress_rows:
-                weekday_stress = [r["stress_average"] for r in stress_rows if r["weekday"] not in ('0', '6')]
-                weekend_stress = [r["stress_average"] for r in stress_rows if r["weekday"] in ('0', '6')]
+                weekday_stress = [
+                    r["stress_average"] for r in stress_rows if r["weekday"] not in ("0", "6")
+                ]
+                weekend_stress = [
+                    r["stress_average"] for r in stress_rows if r["weekday"] in ("0", "6")
+                ]
 
                 if weekday_stress and weekend_stress:
                     weekday_avg = mean(weekday_stress)
@@ -621,14 +645,14 @@ class HealthProfileBuilder:
                 profile.add_source(
                     "工作日模式",
                     f"工作日血压显著高于周末（{patterns['bp_weekday_avg']:.0f} vs {patterns['bp_weekend_avg']:.0f} mmHg）",
-                    "vitals 分析"
+                    "vitals 分析",
                 )
             if patterns.get("stress_diff", 0) >= 3:
                 is_weekday_elevated = True
                 profile.add_source(
                     "工作日模式",
                     f"工作日压力显著高于周末（{patterns['stress_weekday_avg']:.0f} vs {patterns['stress_weekend_avg']:.0f}）",
-                    "daily_health 分析"
+                    "daily_health 分析",
                 )
 
             if is_weekday_elevated:
@@ -664,7 +688,9 @@ class HealthProfileBuilder:
         # 工作日综合征 → 工作日优先减压运动，周末可适当提升强度
         if "weekday_elevated" in profile.risk_factors:
             priorities.append("weekday_stress_management")
-            profile.add_source("运动注意", "工作日优先减压/降压运动，周末可提升强度", "workday_pattern 推导")
+            profile.add_source(
+                "运动注意", "工作日优先减压/降压运动，周末可提升强度", "workday_pattern 推导"
+            )
 
         # 体成分目标
         if profile.body_composition.priority_training == "resistance":
@@ -683,7 +709,8 @@ class HealthProfileBuilder:
 
     def _load_active_goals(self, profile: HealthProfile, reference_date: str):
         """加载活跃阶段性目标。"""
-        from superhealth.goals.metrics import GoalMetricRegistry, METRIC_REGISTRY
+        from superhealth.goals.metrics import METRIC_REGISTRY
+
         try:
             with self._get_conn() as conn:
                 rows = conn.execute(

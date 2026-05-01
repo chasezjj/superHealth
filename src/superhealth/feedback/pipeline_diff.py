@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -82,9 +81,7 @@ def take_snapshot(tag: str, db_path: Path = DB_PATH) -> Path:
     with db.get_conn(db_path) as conn:
         # 1. learned_preferences 全量
         prefs = db.query_learned_preferences(conn)
-        snapshot["learned_preferences"] = [
-            {k: v for k, v in dict(p).items()} for p in prefs
-        ]
+        snapshot["learned_preferences"] = [{k: v for k, v in dict(p).items()} for p in prefs]
 
         # 2. tracked_metrics
         rows = conn.execute(
@@ -127,7 +124,12 @@ def take_snapshot(tag: str, db_path: Path = DB_PATH) -> Path:
 
     path = _snapshot_path(tag)
     path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2, default=str))
-    log.info("快照已写入: %s (偏好%d条, 追踪%d天)", path, len(snapshot["learned_preferences"]), len(snapshot["tracked_metrics"]))
+    log.info(
+        "快照已写入: %s (偏好%d条, 追踪%d天)",
+        path,
+        len(snapshot["learned_preferences"]),
+        len(snapshot["tracked_metrics"]),
+    )
     return path
 
 
@@ -217,7 +219,9 @@ def _diff_preferences(before: list, after: list) -> dict:
                     entry["type"] = "reverted"
                 elif bp.get("status") == "active" and ap.get("status") == "committed":
                     entry["type"] = "committed"
-                elif changes.get("confidence_score") and ap.get("confidence_score", 1) < bp.get("confidence_score", 0):
+                elif changes.get("confidence_score") and ap.get("confidence_score", 1) < bp.get(
+                    "confidence_score", 0
+                ):
                     entry["type"] = "stale_decay"
                 else:
                     entry["type"] = "updated"
@@ -241,10 +245,16 @@ def _diff_tracked(before: dict, after: dict) -> dict:
             diff["added"].append({"date": d, "assessment": at.get("assessment")})
         else:
             changes = {}
-            for field in ("assessment", "composite_score_avg", "composite_score_day1",
-                          "composite_score_day2", "baseline_type",
-                          "positive_signals", "negative_signals",
-                          "net_effect_available"):
+            for field in (
+                "assessment",
+                "composite_score_avg",
+                "composite_score_day1",
+                "composite_score_day2",
+                "baseline_type",
+                "positive_signals",
+                "negative_signals",
+                "net_effect_available",
+            ):
                 if bt.get(field) != at.get(field):
                     changes[field] = {"before": bt.get(field), "after": at.get(field)}
 
@@ -319,7 +329,9 @@ def format_report(diff_result: dict) -> str:
                     lines.append(f"  {mk}: {mv['before']} → {mv['after']}{delta_str}")
         if interp.get("window"):
             w = interp["window"]
-            lines.append(f"lookback window: {w['before']['start']}~{w['before']['end']} → {w['after']['start']}~{w['after']['end']}")
+            lines.append(
+                f"lookback window: {w['before']['start']}~{w['before']['end']} → {w['after']['start']}~{w['after']['end']}"
+            )
         if interp.get("other"):
             for k, v in interp["other"].items():
                 lines.append(f"{k}: {v['before']} → {v['after']}")
@@ -332,19 +344,23 @@ def format_report(diff_result: dict) -> str:
         lines.append("--- Learned Preferences Changes ---")
         for item in pdiff.get("added", []):
             a = item["after"]
-            lines.append(f"[NEW] {item['key']}: \"{a.get('preference_value')}\" "
-                         f"(confidence={a.get('confidence_score')}, evidence={a.get('evidence_count')})")
+            lines.append(
+                f'[NEW] {item["key"]}: "{a.get("preference_value")}" '
+                f"(confidence={a.get('confidence_score')}, evidence={a.get('evidence_count')})"
+            )
         for item in pdiff.get("removed", []):
             b = item["before"]
-            lines.append(f"[REMOVED] {item['key']}: \"{b.get('preference_value')}\" "
-                         f"(was confidence={b.get('confidence_score')})")
+            lines.append(
+                f'[REMOVED] {item["key"]}: "{b.get("preference_value")}" '
+                f"(was confidence={b.get('confidence_score')})"
+            )
         for item in pdiff.get("updated", []):
             change_type = item.get("type", "updated").upper()
             changes = item["changes"]
             parts = []
             for field, fv in changes.items():
                 if field == "preference_value":
-                    parts.append(f"\"{fv['before']}\" → \"{fv['after']}\"")
+                    parts.append(f'"{fv["before"]}" → "{fv["after"]}"')
                 elif field == "confidence_score":
                     parts.append(f"confidence: {fv['before']} → {fv['after']}")
                 elif field == "evidence_count":
@@ -358,8 +374,12 @@ def format_report(diff_result: dict) -> str:
 
     # Tracked metrics
     tdiff = diff_result.get("tracked_diff", {})
-    total_tracked = (len(tdiff.get("added", [])) + len(tdiff.get("removed", []))
-                     + len(tdiff.get("changed", [])) + tdiff.get("unchanged_count", 0))
+    total_tracked = (
+        len(tdiff.get("added", []))
+        + len(tdiff.get("removed", []))
+        + len(tdiff.get("changed", []))
+        + tdiff.get("unchanged_count", 0)
+    )
     has_tracked = tdiff.get("added") or tdiff.get("removed") or tdiff.get("changed")
     if has_tracked:
         lines.append(f"--- Tracked Metrics Changes ({total_tracked} dates) ---")
@@ -382,16 +402,27 @@ def format_report(diff_result: dict) -> str:
             for field, fv in changes.items():
                 if field == "assessment":
                     continue
-                if isinstance(fv, dict) and "before" in fv and "after" in fv and not isinstance(fv.get("before"), dict):
+                if (
+                    isinstance(fv, dict)
+                    and "before" in fv
+                    and "after" in fv
+                    and not isinstance(fv.get("before"), dict)
+                ):
                     lines.append(f"  {field}: {fv['before']} → {fv['after']}")
                 elif isinstance(fv, dict) and "removed" in fv:
-                    lines.append(f"  control_dates: {fv['count_before']}个 → {fv['count_after']}个 "
-                                 f"(removed: {fv['removed']}, added: {fv['added']})")
+                    lines.append(
+                        f"  control_dates: {fv['count_before']}个 → {fv['count_after']}个 "
+                        f"(removed: {fv['removed']}, added: {fv['added']})"
+                    )
                 elif isinstance(fv, dict) and any(isinstance(vv, dict) for vv in fv.values()):
                     for mk, mv in fv.items():
                         if isinstance(mv, dict) and "before" in mv:
-                            delta_str = f" ({mv['delta']:+.3f})" if mv.get("delta") is not None else ""
-                            lines.append(f"  {field}.{mk}: {mv['before']} → {mv['after']}{delta_str}")
+                            delta_str = (
+                                f" ({mv['delta']:+.3f})" if mv.get("delta") is not None else ""
+                            )
+                            lines.append(
+                                f"  {field}.{mk}: {mv['before']} → {mv['after']}{delta_str}"
+                            )
         if tdiff.get("unchanged_count"):
             lines.append(f"[UNCHANGED] {tdiff['unchanged_count']} dates 无变化")
         lines.append("")
@@ -415,7 +446,11 @@ def _generate_hints(diff_result: dict) -> list[str]:
     # personal_stds 变化 → 窗口滑动
     ps_diff = interp.get("personal_stds", {})
     if ps_diff:
-        parts = [f"{k} {v['delta']:+.3f}" for k, v in sorted(ps_diff.items()) if v.get("delta") is not None]
+        parts = [
+            f"{k} {v['delta']:+.3f}"
+            for k, v in sorted(ps_diff.items())
+            if v.get("delta") is not None
+        ]
         if parts:
             hints.append(f"personal_stds 变化: {', '.join(parts)} → 180天窗口滑动导致基线偏移")
 
@@ -441,7 +476,9 @@ def _generate_hints(diff_result: dict) -> list[str]:
     if ctrl_changed:
         dates = ", ".join(c["date"] for c in ctrl_changed[:5])
         suffix = " 等" if len(ctrl_changed) > 5 else ""
-        hints.append(f"{len(ctrl_changed)} 天的对照组变化 ({dates}{suffix}) → control_avg_changes 偏移可能导致 assessment 翻转")
+        hints.append(
+            f"{len(ctrl_changed)} 天的对照组变化 ({dates}{suffix}) → control_avg_changes 偏移可能导致 assessment 翻转"
+        )
 
     # 新增追踪
     new_tracked = tdiff.get("added", [])
@@ -500,8 +537,10 @@ def main():
             data = json.loads(f.read_text())
             n_prefs = len(data.get("learned_preferences", []))
             n_tracked = len(data.get("tracked_metrics", {}))
-            print(f"  {f.name}  tag={data.get('tag')}  ts={data.get('timestamp')}  "
-                  f"偏好={n_prefs}  追踪={n_tracked}天")
+            print(
+                f"  {f.name}  tag={data.get('tag')}  ts={data.get('timestamp')}  "
+                f"偏好={n_prefs}  追踪={n_tracked}天"
+            )
 
     elif args.command == "snapshot":
         path = take_snapshot(args.tag)
@@ -511,10 +550,14 @@ def main():
         before_path = _latest_snapshot("before")
         after_path = _latest_snapshot("after")
         if not before_path:
-            print("未找到 before 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot before")
+            print(
+                "未找到 before 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot before"
+            )
             return
         if not after_path:
-            print("未找到 after 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot after")
+            print(
+                "未找到 after 快照，请先运行: python -m superhealth.feedback.pipeline_diff snapshot after"
+            )
             return
         print(f"对比: {before_path.name} vs {after_path.name}")
         diff_result = compare_snapshots(before_path, after_path)

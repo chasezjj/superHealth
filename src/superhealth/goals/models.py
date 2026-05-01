@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -10,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class Goal(BaseModel):
     """阶段性目标。"""
+
     id: Optional[int] = None
     name: str
     description: Optional[str] = None
@@ -29,6 +29,7 @@ class Goal(BaseModel):
 
 class GoalProgress(BaseModel):
     """每日目标进度快照。"""
+
     id: Optional[int] = None
     goal_id: int
     date: str

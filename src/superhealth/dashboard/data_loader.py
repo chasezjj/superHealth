@@ -6,19 +6,22 @@
 
 from __future__ import annotations
 
-import glob
-import os
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
-from superhealth.database import DEFAULT_DB_PATH, get_conn, query_lab_trends_unified, query_multiple_metrics, _LIVER_KIDNEY_METRICS, query_user_profiles
-
+from superhealth.database import (
+    DEFAULT_DB_PATH,
+    get_conn,
+    query_lab_trends_unified,
+    query_multiple_metrics,
+    query_user_profiles,
+)
 
 # ─── 基础查询 ─────────────────────────────────────────────────────────
+
 
 @st.cache_data(ttl=0)
 def load_daily_health(days: int = 90) -> pd.DataFrame:
@@ -147,21 +150,18 @@ def load_weather(days: int = 90) -> pd.DataFrame:
 
 # ─── 快捷查询（单值） ─────────────────────────────────────────────────
 
+
 def get_latest_vitals() -> dict:
     """获取最新一条血压/体重/体脂记录。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT * FROM vitals ORDER BY measured_at DESC LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT * FROM vitals ORDER BY measured_at DESC LIMIT 1").fetchone()
     return dict(row) if row else {}
 
 
 def get_latest_daily_health() -> dict:
     """获取最新一天的 Garmin 数据。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
-        row = conn.execute(
-            "SELECT * FROM daily_health ORDER BY date DESC LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT * FROM daily_health ORDER BY date DESC LIMIT 1").fetchone()
     return dict(row) if row else {}
 
 
@@ -192,6 +192,7 @@ def get_upcoming_appointments(within_days: int = 14) -> list[dict]:
 
 # ─── 统一化验趋势查询（合并 lab_results + annual_checkups）────────────────
 
+
 @st.cache_data(ttl=0)
 def load_unified_lab_trends(metric_key: str, years: int = 10) -> pd.DataFrame:
     """加载统一化验趋势数据（合并门诊化验和年度体检）。
@@ -216,7 +217,9 @@ def load_unified_lab_trends(metric_key: str, years: int = 10) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=0)
-def load_multiple_unified_trends(metric_keys: list[str], years: int = 10) -> dict[str, pd.DataFrame]:
+def load_multiple_unified_trends(
+    metric_keys: list[str], years: int = 10
+) -> dict[str, pd.DataFrame]:
     """批量加载多个指标的统一趋势数据。
 
     Returns:
@@ -257,6 +260,7 @@ def get_available_lab_metrics() -> dict[str, str]:
 
 
 # ─── AI 摘要 ─────────────────────────────────────────────────────────
+
 
 def get_latest_ai_summary(max_chars: int = 300) -> str:
     """从最新的 advanced-daily-report 文件中提取 AI 建议摘要。"""
@@ -358,6 +362,7 @@ def get_latest_weekly_report() -> tuple[str, str]:
 
 # ─── 全量加载（用于相关性分析） ──────────────────────────────────────
 
+
 @st.cache_data(ttl=0)
 def load_merged_for_correlation(days: int = 180) -> pd.DataFrame:
     """
@@ -372,26 +377,41 @@ def load_merged_for_correlation(days: int = 180) -> pd.DataFrame:
     if dh.empty:
         return pd.DataFrame()
 
-    merged = dh[["date", "hrv_last_night_avg", "bb_highest", "sleep_hours",
-                  "stress_average", "hr_resting", "steps"]].copy()
-    merged = merged.rename(columns={
-        "hrv_last_night_avg": "心率变异",
-        "bb_highest": "身体电量",
-        "sleep_hours": "睡眠时长",
-        "stress_average": "压力指数",
-        "hr_resting": "静息心率",
-        "steps": "步数",
-    })
+    merged = dh[
+        [
+            "date",
+            "hrv_last_night_avg",
+            "bb_highest",
+            "sleep_hours",
+            "stress_average",
+            "hr_resting",
+            "steps",
+        ]
+    ].copy()
+    merged = merged.rename(
+        columns={
+            "hrv_last_night_avg": "心率变异",
+            "bb_highest": "身体电量",
+            "sleep_hours": "睡眠时长",
+            "stress_average": "压力指数",
+            "hr_resting": "静息心率",
+            "steps": "步数",
+        }
+    )
     merged["date"] = merged["date"].dt.date
 
     # 血压/体重：按天取均值
     if not vitals.empty:
-        v_daily = vitals.groupby("date").agg(
-            收缩压=("systolic", "mean"),
-            舒张压=("diastolic", "mean"),
-            体重=("weight_kg", "mean"),
-            体脂率=("body_fat_pct", "mean"),
-        ).reset_index()
+        v_daily = (
+            vitals.groupby("date")
+            .agg(
+                收缩压=("systolic", "mean"),
+                舒张压=("diastolic", "mean"),
+                体重=("weight_kg", "mean"),
+                体脂率=("body_fat_pct", "mean"),
+            )
+            .reset_index()
+        )
         merged = merged.merge(v_daily, on="date", how="left")
 
     # 运动：每天总时长（分钟）
@@ -405,6 +425,7 @@ def load_merged_for_correlation(days: int = 180) -> pd.DataFrame:
 
 # ─── 学习偏好 ────────────────────────────────────────────────────────
 
+
 @st.cache_data(ttl=0)
 def load_learned_preferences(preference_type: str = None, status: str = None) -> pd.DataFrame:
     """加载已学习的个人偏好。
@@ -414,8 +435,11 @@ def load_learned_preferences(preference_type: str = None, status: str = None) ->
         status: 要排除的状态。传 'reverted' 时排除 reverted，同时保留 NULL 旧数据。
     """
     from superhealth.database import query_learned_preferences
+
     with get_conn(DEFAULT_DB_PATH) as conn:
-        rows = query_learned_preferences(conn, preference_type=preference_type, exclude_status=status)
+        rows = query_learned_preferences(
+            conn, preference_type=preference_type, exclude_status=status
+        )
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame([dict(r) for r in rows])
@@ -426,6 +450,7 @@ def load_learned_preferences(preference_type: str = None, status: str = None) ->
 
 # ─── 用户档案 ────────────────────────────────────────────────────────
 
+
 @st.cache_data(ttl=0)
 def get_user_profile() -> dict:
     """读取用户档案（身高/性别/出生日期等），返回 {key: value} 字典。"""
@@ -434,6 +459,7 @@ def get_user_profile() -> dict:
 
 
 # ─── 历史回顾专用查询 ─────────────────────────────────────────────────
+
 
 @st.cache_data(ttl=0)
 def load_recent_feedback(days: int = 3) -> pd.DataFrame:
@@ -484,9 +510,7 @@ def load_recent_goal_progress(days: int = 3) -> dict[int, pd.DataFrame]:
     """
     since = (date.today() - timedelta(days=days)).isoformat()
     with get_conn(DEFAULT_DB_PATH) as conn:
-        goal_rows = conn.execute(
-            "SELECT id FROM goals WHERE status = 'active'"
-        ).fetchall()
+        goal_rows = conn.execute("SELECT id FROM goals WHERE status = 'active'").fetchall()
         goal_ids = [r["id"] for r in goal_rows]
 
         result = {}

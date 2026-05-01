@@ -52,6 +52,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
@@ -73,11 +74,11 @@ _METRIC_MAP = {
     "blood_pressure_systolic": "systolic",
     "blood_pressure_diastolic": "diastolic",
     # 血压（某些版本合并字段，data 条目有 Systolic/Diastolic 键）
-    "blood_pressure": None,   # 特殊处理
+    "blood_pressure": None,  # 特殊处理
     # 体重
     "weight_body_mass": "weight_kg",
     "body_mass": "weight_kg",
-    "lean_body_mass": None,   # 忽略
+    "lean_body_mass": None,  # 忽略
     # 体脂率
     "body_fat_percentage": "body_fat_pct",
     "body_fat_percent": "body_fat_pct",
@@ -149,9 +150,12 @@ def _write_bp_markdown(conn: sqlite3.Connection) -> None:
 
     # 读取现有文件中的记录（用于去重）
     existing_records: set[str] = set()
-    header_lines = ["# 血压记录", "",
-                    "| 日期 | 时间 | 收缩压 (mmHg) | 舒张压 (mmHg) | 备注 |",
-                    "|------|------|---------------|---------------|------|"]
+    header_lines = [
+        "# 血压记录",
+        "",
+        "| 日期 | 时间 | 收缩压 (mmHg) | 舒张压 (mmHg) | 备注 |",
+        "|------|------|---------------|---------------|------|",
+    ]
 
     if BP_MD_PATH.exists():
         content = BP_MD_PATH.read_text(encoding="utf-8")
@@ -222,9 +226,12 @@ def _write_weight_markdown(conn: sqlite3.Connection) -> None:
 
     # 读取现有文件中的记录（用于去重）
     existing_records: set[str] = set()
-    header_lines = ["# 体重记录", "",
-                    "| 日期 | 体重 (kg) | 体脂率 (%) | 备注 |",
-                    "|------|-----------|------------|------|"]
+    header_lines = [
+        "# 体重记录",
+        "",
+        "| 日期 | 体重 (kg) | 体脂率 (%) | 备注 |",
+        "|------|-----------|------------|------|",
+    ]
 
     if WEIGHT_MD_PATH.exists():
         content = WEIGHT_MD_PATH.read_text(encoding="utf-8")
@@ -292,7 +299,7 @@ def _normalize_ts(date_str: str) -> str:
     s = date_str.strip()
     try:
         # 已经是完整 ISO 格式（含时区冒号）直接返回
-        if "T" in s and ":" in s[s.find("T"):]:
+        if "T" in s and ":" in s[s.find("T") :]:
             # 修正 +HHMM → +HH:MM（如果缺少冒号）
             if len(s) > 5 and s[-3] != ":" and s[-5] in "+-" and s[-4:].isdigit():
                 s = s[:-2] + ":" + s[-2:]
@@ -391,7 +398,9 @@ def create_app(config=None) -> Flask:
                     body_fat_pct=rec.get("body_fat_pct"),
                 )
                 saved += 1
-                log.info("保存体征记录: %s %s", ts, {k: v for k, v in rec.items() if k != "measured_at"})
+                log.info(
+                    "保存体征记录: %s %s", ts, {k: v for k, v in rec.items() if k != "measured_at"}
+                )
 
             # 同步写入 markdown 文件
             if saved > 0:
@@ -419,7 +428,7 @@ def main():
         log.warning(
             "vitals.api_token 未配置！请在 ~/.healthy/config.toml 中添加:\n"
             "  [vitals]\n"
-            "  api_token = \"your-secret-token\""
+            '  api_token = "your-secret-token"'
         )
     app = create_app(cfg)
     log.info("启动 vitals_receiver，监听 %s:%s", cfg.vitals.host, cfg.vitals.port)

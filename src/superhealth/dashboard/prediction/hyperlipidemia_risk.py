@@ -18,7 +18,6 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from superhealth.dashboard.data_loader import (
@@ -26,7 +25,6 @@ from superhealth.dashboard.data_loader import (
     load_lab_results,
     load_vitals,
 )
-
 
 # ─── LDL-C 目标值（按心血管风险分层）─────────────────────────────────
 
@@ -38,10 +36,10 @@ LDL_TARGETS = {
 }
 
 # TG 分级
-TG_NORMAL = 0       # <1.7
-TG_BORDERLINE = 1   # 1.7-2.3
-TG_HIGH = 2         # 2.3-5.6（需药物治疗）
-TG_VERY_HIGH = 3    # ≥5.6（急性胰腺炎风险，紧急处理）
+TG_NORMAL = 0  # <1.7
+TG_BORDERLINE = 1  # 1.7-2.3
+TG_HIGH = 2  # 2.3-5.6（需药物治疗）
+TG_VERY_HIGH = 3  # ≥5.6（急性胰腺炎风险，紧急处理）
 
 TG_LABELS = {
     TG_NORMAL: "正常",
@@ -64,6 +62,7 @@ def _grade_tg(tg: Optional[float]) -> int:
 
 
 # ─── 心血管危险因素评估 ─────────────────────────────────────────────
+
 
 def _check_age_risk(profile: dict) -> bool:
     """年龄：男 >45。"""
@@ -134,11 +133,14 @@ def _check_smoking() -> bool:
 
 # ─── 靶器官损害 / 临床合并症 ─────────────────────────────────────────
 
+
 def _check_diabetes(df_lab: pd.DataFrame) -> bool:
     """糖尿病。"""
     if df_lab.empty:
         return False
-    fg = df_lab[df_lab["item_name"].str.contains("空腹血糖|FBG|GLU|Fasting Glucose", case=False, na=False)]
+    fg = df_lab[
+        df_lab["item_name"].str.contains("空腹血糖|FBG|GLU|Fasting Glucose", case=False, na=False)
+    ]
     if not fg.empty and float(fg["value"].iloc[-1]) >= 7.0:
         return True
     hba1c = df_lab[df_lab["item_name"].str.contains("糖化血红蛋白|HbA1c", case=False, na=False)]
@@ -191,6 +193,7 @@ def _ascvd_risk_tier(
 
 
 # ─── 主计算函数 ──────────────────────────────────────────────────────
+
 
 def compute(days: int = 365 * 3) -> dict:
     """基于中国血脂管理指南计算血脂风险分层。"""
@@ -325,7 +328,7 @@ def _get_advice(risk_tier: str, ldl_status: str, tg_grade: int) -> str:
     if risk_tier in (ASCVD_HIGH, ASCVD_VERY_HIGH):
         return "心血管高风险，LDL-C 需严格控制，建议遵医嘱用药并定期复查血脂。"
     if ldl_status == "未达标":
-        return f"LDL-C 未达标，建议减少饱和脂肪和反式脂肪摄入，增加膳食纤维，必要时就医评估。"
+        return "LDL-C 未达标，建议减少饱和脂肪和反式脂肪摄入，增加膳食纤维，必要时就医评估。"
     if tg_grade >= TG_HIGH:
         return "甘油三酯升高，建议控制碳水摄入、戒酒、增加有氧运动，必要时药物治疗。"
     if tg_grade >= TG_BORDERLINE:

@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  superhealth:
+    build: .
+    image: superhealth:latest
+    container_name: superhealth
+    ports:
+      - "8501:8501"
+    volumes:
+      # 数据库持久化
+      - ./health.db:/app/health.db
+      # 配置文件
+      - ~/.superhealth:/root/.superhealth:ro
+      # 活动数据目录
+      - ./activity-data:/app/activity-data
+    environment:
+      - PYTHONPATH=src
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 可选：每日流水线定时任务
+  # cron:
+  #   build: .
+  #   image: superhealth:latest
+  #   container_name: superhealth-cron
+  #   volumes:
+  #     - ./health.db:/app/health.db
+  #     - ~/.superhealth:/root/.superhealth:ro
+  #     - ./activity-data:/app/activity-data
+  #   environment:
+  #     - PYTHONPATH=src
+  #     - TZ=Asia/Shanghai
+  #   command: >
+  #     sh -c "while true; do
+  #       python -m superhealth.daily_pipeline;
+  #       sleep 86400;
+  #     done"
+  #   restart: unless-stopped

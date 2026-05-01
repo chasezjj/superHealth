@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -27,6 +26,7 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 @dataclass
 class TrendResult:
     """趋势分析结果。"""
+
     metric: str
     current_value: Optional[float]
     avg_7d: Optional[float]
@@ -166,7 +166,7 @@ class TrendAnalyzer:
             n = len(values)
             mean_val = sum(values) / n
             variance = sum((v - mean_val) ** 2 for v in values) / n
-            std_val = variance ** 0.5
+            std_val = variance**0.5
 
             return {
                 "mean": mean_val,
@@ -219,13 +219,15 @@ class TrendAnalyzer:
             value = row["value"]
             z_score = (value - mean) / std
             if abs(z_score) > z_threshold:
-                anomalies.append({
-                    "date": row["date"],
-                    "value": value,
-                    "expected": round(mean, 2),
-                    "z_score": round(z_score, 2),
-                    "direction": "high" if z_score > 0 else "low",
-                })
+                anomalies.append(
+                    {
+                        "date": row["date"],
+                        "value": value,
+                        "expected": round(mean, 2),
+                        "z_score": round(z_score, 2),
+                        "direction": "high" if z_score > 0 else "low",
+                    }
+                )
 
         return anomalies
 
@@ -293,8 +295,8 @@ class TrendAnalyzer:
         if rolling and len(rolling) >= 7:
             recent = [r["value"] for r in rolling[-7:] if r["value"] is not None]
             if len(recent) >= 3:
-                first_half = sum(recent[:len(recent)//2]) / (len(recent)//2)
-                second_half = sum(recent[len(recent)//2:]) / (len(recent) - len(recent)//2)
+                first_half = sum(recent[: len(recent) // 2]) / (len(recent) // 2)
+                second_half = sum(recent[len(recent) // 2 :]) / (len(recent) - len(recent) // 2)
                 threshold = self.THRESHOLDS.get(metric, 0)
                 if second_half - first_half > threshold:
                     trend_direction = "up"
@@ -358,8 +360,18 @@ class TrendAnalyzer:
 
         result = {
             "metric": metric,
-            "period1": {"start": period1_start, "end": period1_end, "mean": m1, "n": p1["n"] if p1 else 0},
-            "period2": {"start": period2_start, "end": period2_end, "mean": m2, "n": p2["n"] if p2 else 0},
+            "period1": {
+                "start": period1_start,
+                "end": period1_end,
+                "mean": m1,
+                "n": p1["n"] if p1 else 0,
+            },
+            "period2": {
+                "start": period2_start,
+                "end": period2_end,
+                "mean": m2,
+                "n": p2["n"] if p2 else 0,
+            },
         }
 
         if m1 and m2:
@@ -397,14 +409,20 @@ def generate_trend_report(days: int = 30) -> str:
             lines.append(f"- 当前值: {result.current_value}")
             lines.append(f"- 7天均值: {round(result.avg_7d, 1) if result.avg_7d else 'N/A'}")
             lines.append(f"- 30天均值: {round(result.avg_30d, 1) if result.avg_30d else 'N/A'}")
-            lines.append(f"- 个人基线: {round(result.baseline_mean, 1) if result.baseline_mean else 'N/A'} ± {round(result.baseline_std, 1) if result.baseline_std else 'N/A'}")
+            lines.append(
+                f"- 个人基线: {round(result.baseline_mean, 1) if result.baseline_mean else 'N/A'} ± {round(result.baseline_std, 1) if result.baseline_std else 'N/A'}"
+            )
 
             if result.is_anomaly:
                 direction = "偏高" if result.z_score > 0 else "偏低"
-                lines.append(f"- ⚠️ **异常**: 当前值{direction}（偏离基线 {abs(result.z_score):.1f} 个标准差）")
+                lines.append(
+                    f"- ⚠️ **异常**: 当前值{direction}（偏离基线 {abs(result.z_score):.1f} 个标准差）"
+                )
 
             trend_emoji = {"up": "📈", "down": "📉", "stable": "➡️"}
-            lines.append(f"- 趋势: {trend_emoji.get(result.trend_direction, '')} {result.trend_direction}")
+            lines.append(
+                f"- 趋势: {trend_emoji.get(result.trend_direction, '')} {result.trend_direction}"
+            )
             lines.append("")
         except Exception as e:
             log.warning("分析 %s 趋势失败: %s", metric, e)
@@ -425,7 +443,7 @@ def generate_trend_report(days: int = 30) -> str:
                     direction = "偏高" if a["direction"] == "high" else "偏低"
                     lines.append(f"- {a['date']}: {a['value']} ({direction}，偏离{a['z_score']})")
                 lines.append("")
-        except Exception as e:
+        except Exception:
             continue
 
     if not has_anomalies:

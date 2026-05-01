@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import streamlit as st
 
-from superhealth.dashboard.data_loader import load_daily_health, load_exercises, load_vitals
-from superhealth.dashboard.components.charts import (
-    chart_hrv_bb,
-    chart_bp,
-    chart_weight_fat,
-    chart_stress,
-    chart_exercise_gantt,
-)
 from superhealth.analysis.trends import TrendAnalyzer
-
+from superhealth.dashboard.components.charts import (
+    chart_bp,
+    chart_exercise_gantt,
+    chart_hrv_bb,
+    chart_stress,
+    chart_weight_fat,
+)
+from superhealth.dashboard.data_loader import load_daily_health, load_exercises, load_vitals
 
 RANGE_OPTIONS = {
     "最近30天": 30,

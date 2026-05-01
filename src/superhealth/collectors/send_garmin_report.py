@@ -3,6 +3,7 @@
 
 整合 Garmin 数据、体征数据和高级分析，生成并发送个性化健康建议。
 """
+
 import argparse
 import re
 import subprocess
@@ -11,8 +12,8 @@ from pathlib import Path
 
 from superhealth import config as cfg
 
-_PKG_DIR = Path(__file__).parent.parent    # src/healthy/
-BASE_DIR = _PKG_DIR.parent.parent         # healthy/ (project root)
+_PKG_DIR = Path(__file__).parent.parent  # src/healthy/
+BASE_DIR = _PKG_DIR.parent.parent  # healthy/ (project root)
 DATA_DIR = BASE_DIR / "activity-data"
 REPORTS_DIR = DATA_DIR / "reports"
 
@@ -58,7 +59,9 @@ def send_report(day_str: str) -> int:
     return 1
 
 
-def send_advanced_report(path: Path, day_str: str, channel: str, target: str, account_id: str) -> int:
+def send_advanced_report(
+    path: Path, day_str: str, channel: str, target: str, account_id: str
+) -> int:
     """发送 Phase 4 高级健康日报（含 LLM 建议和多模型评估）。"""
     text = path.read_text(encoding="utf-8")
     print(f"DEBUG: Reading file: {path}", file=sys.stderr)
@@ -66,11 +69,17 @@ def send_advanced_report(path: Path, day_str: str, channel: str, target: str, ac
 
     # 用 openclaw message send 直接发送，绕过 agent 记忆系统
     cmd = [
-        "openclaw", "message", "send",
-        "--channel", channel,
-        "-t", target,
-        "--account", account_id,
-        "--message", text,
+        "openclaw",
+        "message",
+        "send",
+        "--channel",
+        channel,
+        "-t",
+        target,
+        "--account",
+        account_id,
+        "--message",
+        text,
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.stdout:
@@ -80,7 +89,9 @@ def send_advanced_report(path: Path, day_str: str, channel: str, target: str, ac
     return proc.returncode
 
 
-def send_comprehensive_report(path: Path, day_str: str, channel: str, target: str, account_id: str) -> int:
+def send_comprehensive_report(
+    path: Path, day_str: str, channel: str, target: str, account_id: str
+) -> int:
     """发送新的综合健康日报。"""
     text = path.read_text(encoding="utf-8")
 
@@ -132,10 +143,12 @@ def send_comprehensive_report(path: Path, day_str: str, channel: str, target: st
     if weight:
         lines.append(f"  体重: {weight.strip()}")
 
-    lines.extend([
-        "",
-        f"💪 今日建议: {intensity.strip()}",
-    ])
+    lines.extend(
+        [
+            "",
+            f"💪 今日建议: {intensity.strip()}",
+        ]
+    )
 
     if exercise_type:
         lines.append(f"  类型: {exercise_type.strip()}")
@@ -148,11 +161,17 @@ def send_comprehensive_report(path: Path, day_str: str, channel: str, target: st
     message = "\n".join(lines)
 
     cmd = [
-        "openclaw", "message", "send",
-        "--channel", channel,
-        "-t", target,
-        "--account", account_id,
-        "--message", message,
+        "openclaw",
+        "message",
+        "send",
+        "--channel",
+        channel,
+        "-t",
+        target,
+        "--account",
+        account_id,
+        "--message",
+        message,
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.stdout:
@@ -168,7 +187,9 @@ def send_legacy_report(path: Path, day_str: str, channel: str, target: str, acco
 
     recovery = extract(r"- 恢复评级：\*\*(.+?)\*\*", text, "未知")
     intensity = extract(r"- 建议活动强度：\*\*(.+?)\*\*", text, "未知")
-    score = extract(r"- 恢复综合分（内部打分）：\*\*(.+?)\*\*", text, "") or extract(r"- 综合判断分：\*\*(.+?)\*\*", text, "未知")
+    score = extract(r"- 恢复综合分（内部打分）：\*\*(.+?)\*\*", text, "") or extract(
+        r"- 综合判断分：\*\*(.+?)\*\*", text, "未知"
+    )
     sleep_line = extract(r"- 睡眠：(.+)", text, "")
     body_battery = extract(r"- 起床 Body Battery：(.+)", text, "")
     hrv = extract(r"- HRV：(.+)", text, "")
@@ -211,11 +232,17 @@ def send_legacy_report(path: Path, day_str: str, channel: str, target: str, acco
     message = "\n".join(lines)
 
     cmd = [
-        "openclaw", "message", "send",
-        "--channel", channel,
-        "-t", target,
-        "--account", account_id,
-        "--message", message,
+        "openclaw",
+        "message",
+        "send",
+        "--channel",
+        channel,
+        "-t",
+        target,
+        "--account",
+        account_id,
+        "--message",
+        message,
     ]
     proc = subprocess.run(cmd, text=True, capture_output=True)
     if proc.stdout:

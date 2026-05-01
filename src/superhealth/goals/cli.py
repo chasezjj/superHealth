@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from superhealth.goals.manager import GoalManager
-from superhealth.goals.metrics import METRIC_REGISTRY, VALID_METRIC_KEYS
+from superhealth.goals.metrics import METRIC_REGISTRY
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
@@ -36,8 +36,17 @@ def cmd_list(args):
 
     _PRIORITY_LABEL = {1: "P1 主要", 2: "P2 次要", 3: "P3 辅助"}
     for g in goals:
-        status_icon = {"active": "●", "achieved": "✓", "paused": "⏸", "abandoned": "✗", "off_track": "⚠"}.get(g["status"], "?")
-        print(f"\n{status_icon} [{g['id']}] {g['name']} ({_PRIORITY_LABEL.get(g['priority'], f'P{g["priority"]}')})")
+        status_icon = {
+            "active": "●",
+            "achieved": "✓",
+            "paused": "⏸",
+            "abandoned": "✗",
+            "off_track": "⚠",
+        }.get(g["status"], "?")
+        priority_label = _PRIORITY_LABEL.get(g['priority'], f"P{g['priority']}")
+        print(
+            f"\n{status_icon} [{g['id']}] {g['name']} ({priority_label})"
+        )
         spec = METRIC_REGISTRY.get(g["metric_key"])
         print(f"  指标: {spec.label if spec else g['metric_key']}")
         print(f"  方向: {g['direction']}  基线: {g['baseline_value']}  目标: {g['target_value']}")
@@ -87,7 +96,11 @@ def cmd_progress(args):
         print(f"{'日期':12s} {'当前值':>8s} {'变化':>8s} {'进度%':>8s}")
         print("-" * 40)
         for p in progress:
-            delta = f"{p['delta_from_baseline']:+.1f}" if p.get("delta_from_baseline") is not None else "N/A"
+            delta = (
+                f"{p['delta_from_baseline']:+.1f}"
+                if p.get("delta_from_baseline") is not None
+                else "N/A"
+            )
             pct = f"{p['progress_pct']:.1f}" if p.get("progress_pct") is not None else "N/A"
             val = f"{p['current_value']:.1f}" if p.get("current_value") is not None else "N/A"
             print(f"{p['date']:12s} {val:>8s} {delta:>8s} {pct:>8s}")
@@ -123,28 +136,39 @@ def cmd_metrics(_args):
 
 # ── 实验子命令 ──────────────────────────────────────────────────────────
 
+
 def cmd_experiment_list(args):
     from superhealth.feedback.experiment_manager import ExperimentManager
+
     mgr = ExperimentManager(DB_PATH)
     exps = mgr.list_experiments(status=args.status)
     if not exps:
         print("暂无实验。")
         return
 
-    _STATUS_ICON = {"draft": "○", "active": "●", "completed": "✓", "reverted": "✗", "evaluating": "⏳"}
+    _STATUS_ICON = {
+        "draft": "○",
+        "active": "●",
+        "completed": "✓",
+        "reverted": "✗",
+        "evaluating": "⏳",
+    }
     for e in exps:
         icon = _STATUS_ICON.get(e["status"], "?")
         print(f"\n{icon} [{e['id']}] {e['name']}")
         print(f"  假设: {e['hypothesis']}")
         print(f"  干预: {e['intervention']}")
         print(f"  指标: {e['metric_key']}  方向: {e['direction']}  时长: {e['min_duration']}天")
-        print(f"  状态: {e['status']}  开始: {e['start_date'] or '-'}  结束: {e['end_date'] or '-'}")
+        print(
+            f"  状态: {e['status']}  开始: {e['start_date'] or '-'}  结束: {e['end_date'] or '-'}"
+        )
         if e.get("conclusion"):
             print(f"  结论: {e['conclusion'][:200]}")
 
 
 def cmd_experiment_suggest(args):
     from superhealth.feedback.experiment_manager import ExperimentManager
+
     mgr = ExperimentManager(DB_PATH)
     candidates = mgr.suggest_for_goal(args.goal_id)
     if not candidates:
@@ -161,17 +185,24 @@ def cmd_experiment_suggest(args):
 
 def cmd_experiment_create(args):
     from superhealth.feedback.experiment_manager import ExperimentManager
+
     mgr = ExperimentManager(DB_PATH)
 
     if args.from_candidate is not None:
         candidates = mgr.suggest_for_goal(args.goal_id)
         match = [c for c in candidates if c["index"] == args.from_candidate]
         if not match:
-            print(f"候选索引 {args.from_candidate} 不存在，请用 suggest 命令查看可用候选。", file=sys.stderr)
+            print(
+                f"候选索引 {args.from_candidate} 不存在，请用 suggest 命令查看可用候选。",
+                file=sys.stderr,
+            )
             sys.exit(1)
         c = match[0]
         name = args.name or c["name"]
-        hypothesis = args.hypothesis or f"{c['intervention']} 对 {c['metric_key']}（方向: {c['direction']}）的效果"
+        hypothesis = (
+            args.hypothesis
+            or f"{c['intervention']} 对 {c['metric_key']}（方向: {c['direction']}）的效果"
+        )
         intervention = c["intervention"]
         duration = args.duration or c["duration"]
     else:
@@ -201,6 +232,7 @@ def cmd_experiment_create(args):
 
 def cmd_experiment_activate(args):
     from superhealth.feedback.experiment_manager import ExperimentManager
+
     mgr = ExperimentManager(DB_PATH)
     try:
         mgr.activate(args.experiment_id)
@@ -212,6 +244,7 @@ def cmd_experiment_activate(args):
 
 def cmd_experiment_cancel(args):
     from superhealth.feedback.experiment_manager import ExperimentManager
+
     mgr = ExperimentManager(DB_PATH)
     try:
         mgr.cancel(args.experiment_id)
@@ -276,7 +309,9 @@ def main():
 
     p_exp_create = exp_sub.add_parser("create", help="创建实验草稿")
     p_exp_create.add_argument("--goal-id", type=int, required=True, help="关联目标 ID")
-    p_exp_create.add_argument("--from-candidate", type=int, help="从候选索引创建（用 suggest 查看）")
+    p_exp_create.add_argument(
+        "--from-candidate", type=int, help="从候选索引创建（用 suggest 查看）"
+    )
     p_exp_create.add_argument("--name", help="实验名称（手动创建必填）")
     p_exp_create.add_argument("--hypothesis", help="假设（手动创建必填）")
     p_exp_create.add_argument("--intervention", help="干预描述（手动创建必填）")

@@ -21,7 +21,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean, variance
-from typing import Optional
 
 from superhealth import database as db
 from superhealth.feedback.effect_tracker import EffectTracker
@@ -74,7 +73,8 @@ class StrategyLearner:
                 exp_start = active_exp["start_date"]
                 exp_end = active_exp["end_date"] or date.today().isoformat()
                 feedbacks = [
-                    fb for fb in feedbacks
+                    fb
+                    for fb in feedbacks
                     if fb.get("date") and not (exp_start <= fb["date"] <= exp_end)
                 ]
                 dates = [fb["date"] for fb in feedbacks if fb.get("date")]
@@ -149,20 +149,22 @@ class StrategyLearner:
                 dur_bin = self._classify_duration((ex.get("duration_seconds") or 0) / 60)
                 time_slot = self._classify_time_slot(ex.get("start_time"))
 
-                samples.append({
-                    "date": d,
-                    "exercise_type": ex_type,
-                    "hr_zone": hr_zone,
-                    "duration_bin": dur_bin,
-                    "time_slot": time_slot,
-                    "hrv_level": hrv_level,
-                    "sleep_level": sleep_level,
-                    "composite_score_avg": cs_avg,
-                    "composite_score_day1": cs_day1,
-                    "composite_score_day2": cs_day2,
-                    "days_ago": days_ago,
-                    "decay": decay,
-                })
+                samples.append(
+                    {
+                        "date": d,
+                        "exercise_type": ex_type,
+                        "hr_zone": hr_zone,
+                        "duration_bin": dur_bin,
+                        "time_slot": time_slot,
+                        "hrv_level": hrv_level,
+                        "sleep_level": sleep_level,
+                        "composite_score_avg": cs_avg,
+                        "composite_score_day1": cs_day1,
+                        "composite_score_day2": cs_day2,
+                        "days_ago": days_ago,
+                        "decay": decay,
+                    }
+                )
 
         return samples
 
@@ -285,7 +287,11 @@ class StrategyLearner:
             }
             log.debug(
                 "shrinkage [%s] raw=%.2f shrunk=%.2f n=%d lambda=%.2f",
-                g, mu_group, mu_shrunk, n, lam
+                g,
+                mu_group,
+                mu_shrunk,
+                n,
+                lam,
             )
 
         return results
@@ -303,8 +309,7 @@ class StrategyLearner:
     def _learn_exercise_type(self, samples: list[dict]) -> dict[str, str]:
         # 过滤掉"未运动/未知运动"，全局偏好只从实际运动类型中学习
         exercise_samples = [
-            s for s in samples
-            if s["exercise_type"] not in self._NON_EXERCISE_TYPES
+            s for s in samples if s["exercise_type"] not in self._NON_EXERCISE_TYPES
         ]
         results = self._learn_with_shrinkage(
             exercise_samples, lambda s: s["exercise_type"], min_evidence=3
@@ -316,7 +321,8 @@ class StrategyLearner:
         best = max(results.items(), key=lambda x: x[1]["shrunk_mean"])
         if best[1]["shrunk_mean"] > 0.05 and best[1]["n"] >= 3:
             self._update_preference(
-                "exercise_type", "preferred_type",
+                "exercise_type",
+                "preferred_type",
                 best[0],
                 confidence=best[1]["confidence"],
                 evidence_count=best[1]["n"],
@@ -324,14 +330,19 @@ class StrategyLearner:
             updates["preferred_type"] = best[0]
             log.info(
                 "学习到偏好运动类型: %s（shrunk=%.2f, n=%d, λ=%.2f）",
-                best[0], best[1]["shrunk_mean"], best[1]["n"], best[1]["lambda"]
+                best[0],
+                best[1]["shrunk_mean"],
+                best[1]["n"],
+                best[1]["lambda"],
             )
 
         for g, info in results.items():
             if info["shrunk_mean"] < -0.05 and info["n"] >= 3:
                 key = f"avoid_{g.replace(' ', '_')}"
                 self._update_preference(
-                    "exercise_type", key, "true",
+                    "exercise_type",
+                    key,
+                    "true",
                     confidence=info["confidence"],
                     evidence_count=info["n"],
                 )
@@ -343,13 +354,11 @@ class StrategyLearner:
     def _learn_contextual_exercise(self, samples: list[dict]) -> dict[str, str]:
         """按 HRV 分层学习最优运动类型。"""
         exercise_samples = [
-            s for s in samples
-            if s["exercise_type"] not in self._NON_EXERCISE_TYPES
+            s for s in samples if s["exercise_type"] not in self._NON_EXERCISE_TYPES
         ]
         results = self._learn_with_shrinkage(
             exercise_samples,
-            lambda s: (s["hrv_level"], s["exercise_type"])
-            if s["hrv_level"] != "unknown" else None,
+            lambda s: (s["hrv_level"], s["exercise_type"]) if s["hrv_level"] != "unknown" else None,
             min_evidence=2,
         )
         if not results:
@@ -361,17 +370,15 @@ class StrategyLearner:
 
         updates = {}
         for ctx, ex_dict in by_context.items():
-            valid = {
-                k: v for k, v in ex_dict.items()
-                if v["n"] >= 2 and v["lambda"] > 0.2
-            }
+            valid = {k: v for k, v in ex_dict.items() if v["n"] >= 2 and v["lambda"] > 0.2}
             if not valid:
                 continue
             best = max(valid.items(), key=lambda x: x[1]["shrunk_mean"])
             if best[1]["shrunk_mean"] > 0.0:
                 key = f"{ctx}_best_type"
                 self._update_preference(
-                    "context_exercise", key,
+                    "context_exercise",
+                    key,
                     best[0],
                     confidence=best[1]["confidence"],
                     evidence_count=best[1]["n"],
@@ -379,7 +386,10 @@ class StrategyLearner:
                 updates[key] = best[0]
                 log.info(
                     "学习到 [%s] 最优运动: %s（shrunk=%.2f, n=%d）",
-                    ctx, best[0], best[1]["shrunk_mean"], best[1]["n"]
+                    ctx,
+                    best[0],
+                    best[1]["shrunk_mean"],
+                    best[1]["n"],
                 )
 
         return updates
@@ -387,8 +397,7 @@ class StrategyLearner:
     def _learn_dose_response(self, samples: list[dict]) -> dict[str, str]:
         """分析运动强度和时长与恢复效果的关系（连续评分版）。"""
         exercise_samples = [
-            s for s in samples
-            if s["exercise_type"] not in self._NON_EXERCISE_TYPES
+            s for s in samples if s["exercise_type"] not in self._NON_EXERCISE_TYPES
         ]
         updates = {}
 
@@ -403,7 +412,8 @@ class StrategyLearner:
                 zone_map = {"low": "<120bpm", "moderate": "120-150bpm", "high": ">150bpm"}
                 val = zone_map.get(best_hr[0], best_hr[0])
                 self._update_preference(
-                    "intensity", "optimal_hr_zone",
+                    "intensity",
+                    "optimal_hr_zone",
                     val,
                     confidence=best_hr[1]["confidence"],
                     evidence_count=best_hr[1]["n"],
@@ -422,7 +432,8 @@ class StrategyLearner:
                 dur_map = {"short": "<25min", "medium": "25-50min", "long": ">50min"}
                 val = dur_map.get(best_dur[0], best_dur[0])
                 self._update_preference(
-                    "intensity", "optimal_duration",
+                    "intensity",
+                    "optimal_duration",
                     val,
                     confidence=best_dur[1]["confidence"],
                     evidence_count=best_dur[1]["n"],
@@ -432,27 +443,29 @@ class StrategyLearner:
 
         combo_results = self._learn_with_shrinkage(
             exercise_samples,
-            lambda s: f"{s['hr_zone']}_{s['duration_bin']}"
-            if s["hr_zone"] != "unknown" and s["duration_bin"] != "unknown" else None,
+            lambda s: (
+                f"{s['hr_zone']}_{s['duration_bin']}"
+                if s["hr_zone"] != "unknown" and s["duration_bin"] != "unknown"
+                else None
+            ),
             min_evidence=2,
         )
         if combo_results:
             valid_combos = {
-                k: v for k, v in combo_results.items()
-                if v["n"] >= 3 and v["lambda"] > 0.25
+                k: v for k, v in combo_results.items() if v["n"] >= 3 and v["lambda"] > 0.25
             }
             if valid_combos:
                 best_combo = max(valid_combos.items(), key=lambda x: x[1]["shrunk_mean"])
                 self._update_preference(
-                    "intensity", "optimal_combo",
+                    "intensity",
+                    "optimal_combo",
                     best_combo[0],
                     confidence=best_combo[1]["confidence"],
                     evidence_count=best_combo[1]["n"],
                 )
                 updates["optimal_combo"] = best_combo[0]
                 log.info(
-                    "学习到最优组合: %s（shrunk=%.2f）",
-                    best_combo[0], best_combo[1]["shrunk_mean"]
+                    "学习到最优组合: %s（shrunk=%.2f）", best_combo[0], best_combo[1]["shrunk_mean"]
                 )
 
         return updates
@@ -470,7 +483,8 @@ class StrategyLearner:
         best = max(results.items(), key=lambda x: x[1]["shrunk_mean"])
         if best[1]["n"] >= 15:
             self._update_preference(
-                "timing", "optimal_time_slot",
+                "timing",
+                "optimal_time_slot",
                 best[0],
                 confidence=best[1]["confidence"],
                 evidence_count=best[1]["n"],
@@ -509,12 +523,15 @@ class StrategyLearner:
             speed = "slow"
 
         self._update_preference(
-            "recovery_pattern", "recovery_speed",
+            "recovery_pattern",
+            "recovery_speed",
             speed,
             confidence=min(0.9, 0.4 + len(recovery_days) * 0.05),
             evidence_count=len(recovery_days),
         )
-        log.info("学习到恢复速度: %s（平均 %.1f 天，%d 条记录）", speed, avg_day, len(recovery_days))
+        log.info(
+            "学习到恢复速度: %s（平均 %.1f 天，%d 条记录）", speed, avg_day, len(recovery_days)
+        )
         return {"recovery_speed": speed}
 
     def _apply_safety_constraints(self, samples: list[dict], updates: dict[str, str]):
@@ -528,8 +545,11 @@ class StrategyLearner:
             if learned and learned not in allowed_low_hrv:
                 log.warning("安全约束覆盖: %s 从 %s 改为 散步/休息", key, learned)
                 self._update_preference(
-                    "context_exercise", key, "散步/休息",
-                    confidence=0.7, evidence_count=len(low_hrv_samples)
+                    "context_exercise",
+                    key,
+                    "散步/休息",
+                    confidence=0.7,
+                    evidence_count=len(low_hrv_samples),
                 )
                 updates[key] = "散步/休息"
 
@@ -537,6 +557,7 @@ class StrategyLearner:
         """降级过旧的学习偏好置信度。"""
         try:
             from datetime import date, timedelta
+
             cutoff = (date.today() - timedelta(days=max_age_days)).isoformat()
             with self._get_conn() as conn:
                 conn.execute(
@@ -614,7 +635,8 @@ class StrategyLearner:
             if avg_q <= 0.30:
                 # 7 天保护期：新学习的偏好给观察时间
                 try:
-                    from datetime import datetime, timedelta
+                    from datetime import datetime
+
                     updated_dt = datetime.fromisoformat(str(last_updated).replace(" ", "T"))
                     if (datetime.now() - updated_dt).days < 7:
                         continue
@@ -649,7 +671,9 @@ class StrategyLearner:
         if committed_count or reverted_count:
             log.info(
                 "evaluate_preferences: avg_q=%.3f, committed=%d, reverted=%d",
-                avg_q, committed_count, reverted_count
+                avg_q,
+                committed_count,
+                reverted_count,
             )
         else:
             log.debug("evaluate_preferences: avg_q=%.3f, 无变更", avg_q)
@@ -674,7 +698,11 @@ class StrategyLearner:
         safe_types_by_context = {
             "high": [t for t in all_types if t not in excluded_types],
             "mid": [t for t in all_types if t not in excluded_types],
-            "low": [t for t in all_types if t not in excluded_types and t not in ("跑步", "力量", "HIIT")],
+            "low": [
+                t
+                for t in all_types
+                if t not in excluded_types and t not in ("跑步", "力量", "HIIT")
+            ],
         }
 
         for ctx in contexts:
@@ -685,8 +713,8 @@ class StrategyLearner:
                     generated_keys.add(key)
                     desc = (
                         f"建议低 HRV 时尝试 {ex_type} 以收集更多数据"
-                        if ctx == "low" else
-                        f"建议 {ctx} HRV 时尝试 {ex_type} 以收集更多数据"
+                        if ctx == "low"
+                        else f"建议 {ctx} HRV 时尝试 {ex_type} 以收集更多数据"
                     )
                     self._update_preference(
                         "experiment_suggestion",
@@ -695,12 +723,14 @@ class StrategyLearner:
                         confidence=0.3,
                         evidence_count=n,
                     )
-                    suggestions.append({
-                        "key": key,
-                        "context": ctx,
-                        "exercise_type": ex_type,
-                        "n": n,
-                    })
+                    suggestions.append(
+                        {
+                            "key": key,
+                            "context": ctx,
+                            "exercise_type": ex_type,
+                            "n": n,
+                        }
+                    )
 
         # 清理本次未重新生成的过时探索建议
         if generated_keys:
@@ -738,8 +768,9 @@ class StrategyLearner:
 
     # --- 主入口 -----------------------------------------------------------
 
-    def learn_from_recent_feedback(self, days: int = 180,
-                                     active_goals: list[dict] = None) -> dict[str, str]:
+    def learn_from_recent_feedback(
+        self, days: int = 180, active_goals: list[dict] = None
+    ) -> dict[str, str]:
         """分析近 N 天反馈，更新学习偏好。
 
         Args:
@@ -813,7 +844,7 @@ class StrategyLearner:
         status: str = "active",
     ):
         """写入或更新偏好到数据库。"""
-        gid = goal_id or getattr(self, '_current_goal_id', None)
+        gid = goal_id or getattr(self, "_current_goal_id", None)
         try:
             with self._get_conn() as conn:
                 db.upsert_learned_preference(
@@ -849,14 +880,13 @@ class StrategyLearner:
                          AND preference_type = 'exercise_type'
                        ORDER BY confidence_score DESC
                        LIMIT ?""",
-                    (goal_id, top_n)
+                    (goal_id, top_n),
                 ).fetchall()
                 return [dict(r) for r in rows]
         except Exception:
             return []
 
-    def run_full_analysis(self, days: int = 30,
-                          active_goals: list[dict] = None) -> dict:
+    def run_full_analysis(self, days: int = 30, active_goals: list[dict] = None) -> dict:
         """运行完整的学习流程并返回分析报告。"""
         try:
             recent_effects = self.effect_tracker.track_recent_exercises(days=days)
@@ -881,6 +911,7 @@ class StrategyLearner:
 
 def main():
     import argparse
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -892,7 +923,7 @@ def main():
     learner = StrategyLearner()
     result = learner.run_full_analysis(days=args.days)
 
-    print(f"\n=== 策略学习报告 ===")
+    print("\n=== 策略学习报告 ===")
     print(f"分析周期：{result['analyzed_days']} 天")
     print(f"追踪运动次数：{result['tracked_exercises']}")
     print(f"更新偏好数：{len(result['preference_updates'])}")

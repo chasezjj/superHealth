@@ -52,7 +52,7 @@ superhealth/
 ### 安装
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/superhealth.git
+git clone https://github.com/chasezjj/superhealth.git
 cd superhealth
 pip install -e ".[all]"
 playwright install chromium

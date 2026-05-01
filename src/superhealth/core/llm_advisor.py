@@ -17,14 +17,11 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import date
-from pathlib import Path
-from typing import Optional, TYPE_CHECKING
-
-from superhealth.config import load as load_config
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from superhealth.core.health_profile_builder import HealthProfile
     from superhealth.core.assessment_models import AssessmentResult
+    from superhealth.core.health_profile_builder import HealthProfile
 
 log = logging.getLogger(__name__)
 
@@ -112,9 +109,7 @@ class BaseHealthAdvisor(ABC):
                 "hyperuricemia": "高尿酸血症",
                 "glaucoma": "青光眼",
             }
-            conditions_str = "、".join(
-                cond_labels.get(c, c) for c in profile.conditions
-            )
+            conditions_str = "、".join(cond_labels.get(c, c) for c in profile.conditions)
             parts.append(f"**当前诊断**：{conditions_str}（用药控制中）")
 
         if profile.history_conditions:
@@ -122,9 +117,7 @@ class BaseHealthAdvisor(ABC):
                 "dyslipidemia_history": "血脂异常（曾干预，现运动控制）",
                 "kidney_stone_history": "肾结石（随访中）",
             }
-            hist_str = "、".join(
-                hist_labels.get(c, c) for c in profile.history_conditions
-            )
+            hist_str = "、".join(hist_labels.get(c, c) for c in profile.history_conditions)
             parts.append(f"**历史状况**：{hist_str}")
 
         if profile.active_medications:
@@ -183,12 +176,16 @@ class BaseHealthAdvisor(ABC):
             parts.append("\n**工作日/休息日模式**：")
             if wp.get("bp_weekday_avg") and wp.get("bp_weekend_avg"):
                 diff = wp["bp_weekday_avg"] - wp["bp_weekend_avg"]
-                parts.append(f"  - 血压：工作日 {wp['bp_weekday_avg']:.0f} vs 周末 {wp['bp_weekend_avg']:.0f} mmHg（差值 {diff:+.0f}）")
+                parts.append(
+                    f"  - 血压：工作日 {wp['bp_weekday_avg']:.0f} vs 周末 {wp['bp_weekend_avg']:.0f} mmHg（差值 {diff:+.0f}）"
+                )
             if wp.get("stress_weekday_avg") and wp.get("stress_weekend_avg"):
                 diff = wp["stress_weekday_avg"] - wp["stress_weekend_avg"]
-                parts.append(f"  - 压力：工作日 {wp['stress_weekday_avg']:.0f} vs 周末 {wp['stress_weekend_avg']:.0f}（差值 {diff:+.0f}）")
+                parts.append(
+                    f"  - 压力：工作日 {wp['stress_weekday_avg']:.0f} vs 周末 {wp['stress_weekend_avg']:.0f}（差值 {diff:+.0f}）"
+                )
             if wp.get("is_weekday_elevated"):
-                parts.append(f"  - ⚠️ 存在工作日综合征（工作日血压/压力显著高于周末）")
+                parts.append("  - ⚠️ 存在工作日综合征（工作日血压/压力显著高于周末）")
 
         # 学习到的偏好
         if profile.learned_preferences:
@@ -249,12 +246,16 @@ class BaseHealthAdvisor(ABC):
 
         return "\n".join(parts)
 
-    def build_user_prompt(self, daily_data: dict, reference_date: str,
-                          weather_data: dict = None,
-                          recent_exercises: list = None,
-                          recent_feedback: list = None,
-                          is_weekday: bool = None,
-                          calendar_summary: dict = None) -> str:
+    def build_user_prompt(
+        self,
+        daily_data: dict,
+        reference_date: str,
+        weather_data: dict = None,
+        recent_exercises: list = None,
+        recent_feedback: list = None,
+        is_weekday: bool = None,
+        calendar_summary: dict = None,
+    ) -> str:
         """构建用户 prompt（当日数据摘要 + 近7天运动历史 + 近期反馈 + 天气 + 建议请求）。"""
         from datetime import datetime
 
@@ -297,7 +298,10 @@ class BaseHealthAdvisor(ABC):
             lines.append("")
             # 多样性统计
             from collections import Counter
-            type_counts = Counter(ex.get("type_key") or ex.get("name") or "未知" for ex in recent_exercises)
+
+            type_counts = Counter(
+                ex.get("type_key") or ex.get("name") or "未知" for ex in recent_exercises
+            )
             top_types = type_counts.most_common(3)
             type_summary = "、".join(f"{t} {c}次" for t, c in top_types)
             lines.append(f"【近7天运动统计】{type_summary}")
@@ -315,7 +319,9 @@ class BaseHealthAdvisor(ABC):
                 else:
                     break
             if streak >= 2:
-                lines.append(f"【多样性提示】已连续 {streak} 天进行 {daily_types[0]}，今日建议换类型或安排恢复")
+                lines.append(
+                    f"【多样性提示】已连续 {streak} 天进行 {daily_types[0]}，今日建议换类型或安排恢复"
+                )
             lines.append("【近7天运动记录】")
             for ex in recent_exercises:
                 parts = [ex["date"], ex.get("name") or ex.get("type_key") or "未知"]
@@ -338,7 +344,9 @@ class BaseHealthAdvisor(ABC):
             lines.append("【近7天用户反馈】（请据此判断恢复状态，如 DOMS 通常需要 48-72h）")
             _TYPE_LABEL = {"exercise": "运动处方", "recovery": "主动恢复", "rest": "完全休息"}
             for fb in recent_feedback:
-                label = _TYPE_LABEL.get(fb.get("recommendation_type", ""), fb.get("recommendation_type", ""))
+                label = _TYPE_LABEL.get(
+                    fb.get("recommendation_type", ""), fb.get("recommendation_type", "")
+                )
                 lines.append(f"  {fb['date']} [{label}] 反馈：{fb['user_feedback']}")
 
         # 天气信息
@@ -388,7 +396,9 @@ class BaseHealthAdvisor(ABC):
             if calendar_summary.get("has_all_day"):
                 lines.append("- 包含全天事件")
             if busy_level == "high":
-                lines.append("⚠️ 今日日程非常繁忙，建议优先推荐短时高效运动（如午休快走/20分钟HIIT），或将运动安排至晚间")
+                lines.append(
+                    "⚠️ 今日日程非常繁忙，建议优先推荐短时高效运动（如午休快走/20分钟HIIT），或将运动安排至晚间"
+                )
             elif busy_level == "medium":
                 lines.append("📌 今日日程较满，建议利用会议间隙进行短时活动，或安排中等强度运动")
 
@@ -404,7 +414,7 @@ class BaseHealthAdvisor(ABC):
             "{\n"
             '  "summary": "今日状态一句话总结（30字内）",\n'
             '  "recommendation_type": "exercise 或 recovery 或 rest",\n'
-            '  // exercise=正常运动训练(强度≥4), recovery=主动恢复(强度≤3,用于DOMS/疲劳/HRV偏低), rest=完全休息(极度疲劳/生病)\n'
+            "  // exercise=正常运动训练(强度≥4), recovery=主动恢复(强度≤3,用于DOMS/疲劳/HRV偏低), rest=完全休息(极度疲劳/生病)\n"
             '  "exercise": {\n'
             '    "type": "运动类型",\n'
             '    "intensity": "强度等级（1-10）",\n'
@@ -451,8 +461,13 @@ class BaseHealthAdvisor(ABC):
 
         system_prompt = self.build_system_prompt(guide_keys, profile, assessment_results)
         user_prompt = self.build_user_prompt(
-            daily_data, reference_date, weather_data, recent_exercises, recent_feedback,
-            is_weekday, calendar_summary
+            daily_data,
+            reference_date,
+            weather_data,
+            recent_exercises,
+            recent_feedback,
+            is_weekday,
+            calendar_summary,
         )
 
         max_retries = 3
@@ -463,24 +478,41 @@ class BaseHealthAdvisor(ABC):
                 return self._extract_json(raw)
             except json.JSONDecodeError as e:
                 last_error = e
-                log.warning("%s 返回无效 JSON（第%d/%d次）: %s",
-                            self.__class__.__name__, attempt, max_retries, e)
+                log.warning(
+                    "%s 返回无效 JSON（第%d/%d次）: %s",
+                    self.__class__.__name__,
+                    attempt,
+                    max_retries,
+                    e,
+                )
             except Exception as e:
                 last_error = e
-                log.warning("%s API 调用失败（第%d/%d次）: %s",
-                            self.__class__.__name__, attempt, max_retries, e)
+                log.warning(
+                    "%s API 调用失败（第%d/%d次）: %s",
+                    self.__class__.__name__,
+                    attempt,
+                    max_retries,
+                    e,
+                )
 
             if attempt < max_retries:
                 time.sleep(3)
 
-        log.error("%s 所有 %d 次尝试均失败，降级: %s",
-                  self.__class__.__name__, max_retries, last_error)
+        log.error(
+            "%s 所有 %d 次尝试均失败，降级: %s", self.__class__.__name__, max_retries, last_error
+        )
         return self._fallback_advice(daily_data, profile, weather_data, is_weekday)
 
-    def _fallback_advice(self, daily_data: dict, profile: "HealthProfile",
-                         weather_data: dict = None, is_weekday: bool = None) -> dict:
+    def _fallback_advice(
+        self,
+        daily_data: dict,
+        profile: "HealthProfile",
+        weather_data: dict = None,
+        is_weekday: bool = None,
+    ) -> dict:
         """API 不可用时的规则降级建议。"""
         from datetime import date
+
         if is_weekday is None:
             is_weekday = date.today().weekday() < 5
 
@@ -499,7 +531,11 @@ class BaseHealthAdvisor(ABC):
                 duration = "30-40分钟"
             else:
                 intensity = "6-7"
-                ex_type = "中等强度有氧 + 力量训练" if outdoor_ok else "室内有氧（跑步机/动感单车）+ 力量训练"
+                ex_type = (
+                    "中等强度有氧 + 力量训练"
+                    if outdoor_ok
+                    else "室内有氧（跑步机/动感单车）+ 力量训练"
+                )
                 duration = "40-50分钟"
         elif bb >= 50 and sleep_score >= 60:
             if weekday_adjustment:
@@ -582,8 +618,6 @@ class BaseHealthAdvisor(ABC):
                 elif ch == "}":
                     depth -= 1
                     if depth == 0:
-                        return json.loads(raw[start: i + 1])
+                        return json.loads(raw[start : i + 1])
 
         return json.loads(raw)
-
-

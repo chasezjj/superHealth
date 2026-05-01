@@ -8,14 +8,13 @@
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from superhealth.models import DailyHealth, Exercise
+from superhealth.models import DailyHealth
 
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "health.db"
 
@@ -106,7 +105,8 @@ def upsert_daily_health(conn: sqlite3.Connection, dh: DailyHealth):
     old = dict(old_row) if old_row else {}
 
     # 2. 执行 upsert
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO daily_health (
             date,
             sleep_total_seconds, sleep_deep_seconds, sleep_light_seconds,
@@ -164,25 +164,50 @@ def upsert_daily_health(conn: sqlite3.Connection, dh: DailyHealth):
             hrv_status=excluded.hrv_status,
             raw_json=excluded.raw_json,
             fetched_at=excluded.fetched_at
-    """, (
-        dh.date,
-        dh.sleep.total_seconds, dh.sleep.deep_seconds, dh.sleep.light_seconds,
-        dh.sleep.rem_seconds, dh.sleep.awake_seconds, dh.sleep.score,
-        dh.stress.average, dh.stress.max, dh.stress.rest_seconds,
-        dh.stress.low_seconds, dh.stress.medium_seconds, dh.stress.high_seconds,
-        dh.heart_rate.resting, dh.heart_rate.min, dh.heart_rate.max,
-        dh.heart_rate.avg7_resting,
-        dh.body_battery.highest, dh.body_battery.lowest, dh.body_battery.charged,
-        dh.body_battery.drained, dh.body_battery.at_wake,
-        dh.spo2.average, dh.spo2.lowest, dh.spo2.latest,
-        dh.respiration.waking_avg, dh.respiration.highest, dh.respiration.lowest,
-        dh.activity.steps, dh.activity.distance_meters,
-        dh.activity.active_calories, dh.activity.floors_ascended,
-        dh.hrv.last_night_avg, dh.hrv.last_night_5min_high, dh.hrv.weekly_avg,
-        dh.hrv.baseline_low, dh.hrv.baseline_high, dh.hrv.status,
-        dh.model_dump_json(),
-        now_iso,
-    ))
+    """,
+        (
+            dh.date,
+            dh.sleep.total_seconds,
+            dh.sleep.deep_seconds,
+            dh.sleep.light_seconds,
+            dh.sleep.rem_seconds,
+            dh.sleep.awake_seconds,
+            dh.sleep.score,
+            dh.stress.average,
+            dh.stress.max,
+            dh.stress.rest_seconds,
+            dh.stress.low_seconds,
+            dh.stress.medium_seconds,
+            dh.stress.high_seconds,
+            dh.heart_rate.resting,
+            dh.heart_rate.min,
+            dh.heart_rate.max,
+            dh.heart_rate.avg7_resting,
+            dh.body_battery.highest,
+            dh.body_battery.lowest,
+            dh.body_battery.charged,
+            dh.body_battery.drained,
+            dh.body_battery.at_wake,
+            dh.spo2.average,
+            dh.spo2.lowest,
+            dh.spo2.latest,
+            dh.respiration.waking_avg,
+            dh.respiration.highest,
+            dh.respiration.lowest,
+            dh.activity.steps,
+            dh.activity.distance_meters,
+            dh.activity.active_calories,
+            dh.activity.floors_ascended,
+            dh.hrv.last_night_avg,
+            dh.hrv.last_night_5min_high,
+            dh.hrv.weekly_avg,
+            dh.hrv.baseline_low,
+            dh.hrv.baseline_high,
+            dh.hrv.status,
+            dh.model_dump_json(),
+            now_iso,
+        ),
+    )
 
     # 3. 核心指标变更审计
     new = {
@@ -198,15 +223,26 @@ def upsert_daily_health(conn: sqlite3.Connection, dh: DailyHealth):
     # 运动记录：先删后插
     conn.execute("DELETE FROM exercises WHERE date = ?", (dh.date,))
     for ex in dh.exercises:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO exercises (date, name, type_key, start_time, distance_meters,
                 duration_seconds, avg_hr, max_hr, avg_speed, calories, details)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            dh.date, ex.name, ex.type_key, ex.start_time, ex.distance_meters,
-            ex.duration_seconds, ex.avg_hr, ex.max_hr, ex.avg_speed, ex.calories,
-            ex.details,
-        ))
+        """,
+            (
+                dh.date,
+                ex.name,
+                ex.type_key,
+                ex.start_time,
+                ex.distance_meters,
+                ex.duration_seconds,
+                ex.avg_hr,
+                ex.max_hr,
+                ex.avg_speed,
+                ex.calories,
+                ex.details,
+            ),
+        )
 
 
 def load_daily_health_from_db(conn: sqlite3.Connection, day_str: str) -> Optional[DailyHealth]:
@@ -223,32 +259,32 @@ def query_daily_flat(conn: sqlite3.Connection, day_str: str) -> Optional[dict]:
     if not row:
         return None
     return {
-        'date': row['date'],
-        'sleep_total_min':  row['sleep_total_seconds'] // 60 if row['sleep_total_seconds'] else None,
-        'sleep_deep_min':   row['sleep_deep_seconds'] // 60 if row['sleep_deep_seconds'] else None,
-        'sleep_rem_min':    row['sleep_rem_seconds'] // 60 if row['sleep_rem_seconds'] else None,
-        'sleep_awake_min':  row['sleep_awake_seconds'] // 60 if row['sleep_awake_seconds'] else None,
-        'sleep_score': row['sleep_score'],
-        'avg_stress': row['stress_average'],
-        'max_stress': row['stress_max'],
-        'resting_hr': row['hr_resting'],
-        'min_hr': row['hr_min'],
-        'max_hr': row['hr_max'],
-        'avg7_resting_hr': row['hr_avg7_resting'],
-        'body_battery_highest': row['bb_highest'],
-        'body_battery_lowest': row['bb_lowest'],
-        'body_battery_wake': row['bb_at_wake'],
-        'spo2_avg': row['spo2_average'],
-        'spo2_lowest': row['spo2_lowest'],
-        'spo2_latest': row['spo2_latest'],
-        'resp_waking': row['resp_waking_avg'],
-        'steps': row['steps'],
-        'distance_km': round(row['distance_meters'] / 1000, 1) if row['distance_meters'] else None,
-        'hrv_avg': row['hrv_last_night_avg'],
-        'hrv_weekly': row['hrv_weekly_avg'],
-        'hrv_baseline_low': row['hrv_baseline_low'],
-        'hrv_baseline_high': row['hrv_baseline_high'],
-        'hrv_status': row['hrv_status'],
+        "date": row["date"],
+        "sleep_total_min": row["sleep_total_seconds"] // 60 if row["sleep_total_seconds"] else None,
+        "sleep_deep_min": row["sleep_deep_seconds"] // 60 if row["sleep_deep_seconds"] else None,
+        "sleep_rem_min": row["sleep_rem_seconds"] // 60 if row["sleep_rem_seconds"] else None,
+        "sleep_awake_min": row["sleep_awake_seconds"] // 60 if row["sleep_awake_seconds"] else None,
+        "sleep_score": row["sleep_score"],
+        "avg_stress": row["stress_average"],
+        "max_stress": row["stress_max"],
+        "resting_hr": row["hr_resting"],
+        "min_hr": row["hr_min"],
+        "max_hr": row["hr_max"],
+        "avg7_resting_hr": row["hr_avg7_resting"],
+        "body_battery_highest": row["bb_highest"],
+        "body_battery_lowest": row["bb_lowest"],
+        "body_battery_wake": row["bb_at_wake"],
+        "spo2_avg": row["spo2_average"],
+        "spo2_lowest": row["spo2_lowest"],
+        "spo2_latest": row["spo2_latest"],
+        "resp_waking": row["resp_waking_avg"],
+        "steps": row["steps"],
+        "distance_km": round(row["distance_meters"] / 1000, 1) if row["distance_meters"] else None,
+        "hrv_avg": row["hrv_last_night_avg"],
+        "hrv_weekly": row["hrv_weekly_avg"],
+        "hrv_baseline_low": row["hrv_baseline_low"],
+        "hrv_baseline_high": row["hrv_baseline_high"],
+        "hrv_status": row["hrv_status"],
     }
 
 
@@ -260,7 +296,7 @@ def query_date_range(conn: sqlite3.Connection, start: str, end: str) -> list[dic
     ).fetchall()
     results = []
     for row in rows:
-        d = query_daily_flat(conn, row['date'])
+        d = query_daily_flat(conn, row["date"])
         if d:
             results.append(d)
     return results
@@ -268,25 +304,37 @@ def query_date_range(conn: sqlite3.Connection, start: str, end: str) -> list[dic
 
 # ─── 化验结果 CRUD ───────────────────────────────────────────────────
 
-def insert_lab_result(conn: sqlite3.Connection, *,
-                      date: str, source: str, item_name: str,
-                      item_code: str = None, value: float = None,
-                      unit: str = None, ref_low: float = None,
-                      ref_high: float = None, is_abnormal: int = 0,
-                      note: str = None):
-    conn.execute("""
+
+def insert_lab_result(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    source: str,
+    item_name: str,
+    item_code: str = None,
+    value: float = None,
+    unit: str = None,
+    ref_low: float = None,
+    ref_high: float = None,
+    is_abnormal: int = 0,
+    note: str = None,
+):
+    conn.execute(
+        """
         INSERT INTO lab_results (date, source, item_name, item_code,
             value, unit, ref_low, ref_high, is_abnormal, note)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (date, source, item_name, item_code, value, unit,
-          ref_low, ref_high, is_abnormal, note))
+    """,
+        (date, source, item_name, item_code, value, unit, ref_low, ref_high, is_abnormal, note),
+    )
 
 
 # ─── 眼科检查 CRUD ──────────────────────────────────────────────────
 
+
 def insert_eye_exam(conn: sqlite3.Connection, **kwargs):
-    cols = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['?'] * len(kwargs))
+    cols = ", ".join(kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO eye_exams ({cols}) VALUES ({placeholders})",
         tuple(kwargs.values()),
@@ -295,9 +343,10 @@ def insert_eye_exam(conn: sqlite3.Connection, **kwargs):
 
 # ─── 肾脏彩超 CRUD ──────────────────────────────────────────────────
 
+
 def insert_kidney_ultrasound(conn: sqlite3.Connection, **kwargs):
-    cols = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['?'] * len(kwargs))
+    cols = ", ".join(kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO kidney_ultrasounds ({cols}) VALUES ({placeholders})",
         tuple(kwargs.values()),
@@ -306,20 +355,26 @@ def insert_kidney_ultrasound(conn: sqlite3.Connection, **kwargs):
 
 # ─── 体征 CRUD ──────────────────────────────────────────────────────
 
-def insert_vital(conn: sqlite3.Connection, *,
-                 measured_at: str,
-                 source: str = "health_auto_export",
-                 systolic: Optional[int] = None,
-                 diastolic: Optional[int] = None,
-                 weight_kg: Optional[float] = None,
-                 body_fat_pct: Optional[float] = None):
+
+def insert_vital(
+    conn: sqlite3.Connection,
+    *,
+    measured_at: str,
+    source: str = "health_auto_export",
+    systolic: Optional[int] = None,
+    diastolic: Optional[int] = None,
+    weight_kg: Optional[float] = None,
+    body_fat_pct: Optional[float] = None,
+):
     """写入一条体征记录（来自 Health Auto Export）。"""
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO vitals (measured_at, source, systolic, diastolic,
             weight_kg, body_fat_pct)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (measured_at, source, systolic, diastolic,
-          weight_kg, body_fat_pct))
+    """,
+        (measured_at, source, systolic, diastolic, weight_kg, body_fat_pct),
+    )
 
 
 def query_vitals_by_date(conn: sqlite3.Connection, date_str: str) -> Optional[dict]:
@@ -334,26 +389,27 @@ def query_vitals_by_date(conn: sqlite3.Connection, date_str: str) -> Optional[di
            WHERE measured_at LIKE ?
            ORDER BY measured_at DESC
            LIMIT 1""",
-        (f"{date_str}%",)
+        (f"{date_str}%",),
     ).fetchone()
     if not row:
         return None
     return {
-        'measured_at': row['measured_at'],
-        'systolic': row['systolic'],
-        'diastolic': row['diastolic'],
-        'weight_kg': row['weight_kg'],
-        'body_fat_pct': row['body_fat_pct'],
+        "measured_at": row["measured_at"],
+        "systolic": row["systolic"],
+        "diastolic": row["diastolic"],
+        "weight_kg": row["weight_kg"],
+        "body_fat_pct": row["body_fat_pct"],
     }
 
 
 # ─── 年度体检 CRUD ──────────────────────────────────────────────────
 
+
 def upsert_annual_checkup(conn: sqlite3.Connection, **kwargs):
     """写入或更新一次年度体检记录（以 checkup_date 为唯一键）。"""
-    cols = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['?'] * len(kwargs))
-    updates = ', '.join(f"{k}=excluded.{k}" for k in kwargs if k != 'checkup_date')
+    cols = ", ".join(kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
+    updates = ", ".join(f"{k}=excluded.{k}" for k in kwargs if k != "checkup_date")
     conn.execute(
         f"INSERT INTO annual_checkups ({cols}) VALUES ({placeholders})"
         f" ON CONFLICT(checkup_date) DO UPDATE SET {updates}",
@@ -363,9 +419,10 @@ def upsert_annual_checkup(conn: sqlite3.Connection, **kwargs):
 
 # ─── 用药 CRUD ──────────────────────────────────────────────────────
 
+
 def insert_medication(conn: sqlite3.Connection, **kwargs):
-    cols = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['?'] * len(kwargs))
+    cols = ", ".join(kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO medications ({cols}) VALUES ({placeholders})",
         tuple(kwargs.values()),
@@ -386,13 +443,13 @@ def query_active_medications(conn: sqlite3.Connection) -> list[dict]:
 def query_medication_by_condition(conn: sqlite3.Connection, condition: str) -> list[dict]:
     """按疾病查询用药记录。"""
     rows = conn.execute(
-        """SELECT * FROM medications WHERE condition = ? ORDER BY start_date""",
-        (condition,)
+        """SELECT * FROM medications WHERE condition = ? ORDER BY start_date""", (condition,)
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 # ─── 用药效果关联 CRUD ───────────────────────────────────────────────
+
 
 def insert_medication_effect(conn: sqlite3.Connection, **kwargs):
     """记录用药与检查结果的关联。
@@ -407,8 +464,8 @@ def insert_medication_effect(conn: sqlite3.Connection, **kwargs):
     - is_effective: 1=有效, 0=无效, NULL=待评估
     - note: 备注
     """
-    cols = ', '.join(kwargs.keys())
-    placeholders = ', '.join(['?'] * len(kwargs))
+    cols = ", ".join(kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
     conn.execute(
         f"INSERT INTO medication_effects ({cols}) VALUES ({placeholders})",
         tuple(kwargs.values()),
@@ -421,12 +478,14 @@ def query_medication_effects(conn: sqlite3.Connection, medication_id: int) -> li
         """SELECT * FROM medication_effects
            WHERE medication_id = ?
            ORDER BY recorded_at DESC""",
-        (medication_id,)
+        (medication_id,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def query_lab_results_with_medication(conn: sqlite3.Connection, item_name: str, medication_name: str) -> list[dict]:
+def query_lab_results_with_medication(
+    conn: sqlite3.Connection, item_name: str, medication_name: str
+) -> list[dict]:
     """查询特定化验指标在用药前后的变化。
 
     返回包含化验结果和关联用药信息的列表。
@@ -439,24 +498,29 @@ def query_lab_results_with_medication(conn: sqlite3.Connection, item_name: str, 
            LEFT JOIN medications m ON me.medication_id = m.id
            WHERE lr.item_name = ?
            ORDER BY lr.date""",
-        (item_name,)
+        (item_name,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 # ─── 天气 CRUD ──────────────────────────────────────────────────────
 
-def upsert_weather(conn: sqlite3.Connection, *,
-                   date: str,
-                   condition: str = None,
-                   temperature: float = None,
-                   temp_max: float = None,
-                   temp_min: float = None,
-                   wind_scale: int = None,
-                   aqi: float = None,
-                   outdoor_ok: int = None):
+
+def upsert_weather(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    condition: str = None,
+    temperature: float = None,
+    temp_max: float = None,
+    temp_min: float = None,
+    wind_scale: int = None,
+    aqi: float = None,
+    outdoor_ok: int = None,
+):
     """写入或更新一天的天气数据（以 date 为唯一键）。"""
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO weather (date, condition, temperature, temp_max, temp_min, wind_scale, aqi, outdoor_ok)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(date) DO UPDATE SET
@@ -467,10 +531,13 @@ def upsert_weather(conn: sqlite3.Connection, *,
             wind_scale=excluded.wind_scale,
             aqi=excluded.aqi,
             outdoor_ok=excluded.outdoor_ok
-    """, (date, condition, temperature, temp_max, temp_min, wind_scale, aqi, outdoor_ok))
+    """,
+        (date, condition, temperature, temp_max, temp_min, wind_scale, aqi, outdoor_ok),
+    )
 
 
 # ─── 日历事件 CRUD ──────────────────────────────────────────────────
+
 
 def insert_calendar_events(conn: sqlite3.Connection, *, date: str, events: list[dict]):
     """写入一天的所有日历事件（先删后插，保证幂等）。"""
@@ -512,7 +579,9 @@ def query_calendar_events(conn: sqlite3.Connection, date_str: str) -> list[dict]
     return [dict(row) for row in rows]
 
 
-def query_calendar_events_multi(conn: sqlite3.Connection, date_strs: list[str]) -> dict[str, list[dict]]:
+def query_calendar_events_multi(
+    conn: sqlite3.Connection, date_strs: list[str]
+) -> dict[str, list[dict]]:
     """批量查询多个日期的日历事件，返回 {date_str: [events]}。
 
     避免在 _find_control_days() 中对每个候选日单独查询的 N+1 问题。
@@ -537,12 +606,9 @@ def query_calendar_events_multi(conn: sqlite3.Connection, date_strs: list[str]) 
     return result
 
 
-
 def query_weather(conn: sqlite3.Connection, date_str: str) -> Optional[dict]:
     """查询某天的天气记录，返回 dict 或 None。"""
-    row = conn.execute(
-        "SELECT * FROM weather WHERE date = ?", (date_str,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM weather WHERE date = ?", (date_str,)).fetchone()
     if not row:
         return None
     col_names = row.keys()
@@ -560,33 +626,50 @@ def query_weather(conn: sqlite3.Connection, date_str: str) -> Optional[dict]:
 
 # ─── 反馈 CRUD（Phase 4）────────────────────────────────────────────
 
-def insert_recommendation_feedback(conn: sqlite3.Connection, *,
-                                   date: str,
-                                   report_id: str,
-                                   recommendation_type: str = None,
-                                   recommendation_content: str = None,
-                                   compliance: int = None,
-                                   actual_action: str = None,
-                                   tracked_metrics: str = None):
+
+def insert_recommendation_feedback(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    report_id: str,
+    recommendation_type: str = None,
+    recommendation_content: str = None,
+    compliance: int = None,
+    actual_action: str = None,
+    tracked_metrics: str = None,
+):
     """写入一条建议执行反馈。tracked_metrics 为 JSON 字符串。
 
     Args:
         compliance: 遵从度百分比，0-100 的整数（如 85 表示 85% 符合建议）
     """
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO recommendation_feedback
             (date, report_id, recommendation_type, recommendation_content,
              compliance, actual_action, tracked_metrics, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-    """, (date, report_id, recommendation_type, recommendation_content,
-          compliance, actual_action, tracked_metrics))
+    """,
+        (
+            date,
+            report_id,
+            recommendation_type,
+            recommendation_content,
+            compliance,
+            actual_action,
+            tracked_metrics,
+        ),
+    )
 
 
-def update_recommendation_feedback(conn: sqlite3.Connection, *,
-                                   date: str,
-                                   recommendation_type: str = None,
-                                   compliance: int,
-                                   actual_action: str = None) -> bool:
+def update_recommendation_feedback(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    recommendation_type: str = None,
+    compliance: int,
+    actual_action: str = None,
+) -> bool:
     """更新已有反馈记录的 compliance / actual_action。
 
     Args:
@@ -597,56 +680,74 @@ def update_recommendation_feedback(conn: sqlite3.Connection, *,
     用于 auto_feedback.py 的两阶段写入（Phase 2）。
     """
     if recommendation_type:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             UPDATE recommendation_feedback
             SET compliance = ?, actual_action = ?
             WHERE date = ? AND recommendation_type = ? AND compliance IS NULL
-        """, (compliance, actual_action, date, recommendation_type))
+        """,
+            (compliance, actual_action, date, recommendation_type),
+        )
     else:
-        cursor = conn.execute("""
+        cursor = conn.execute(
+            """
             UPDATE recommendation_feedback
             SET compliance = ?, actual_action = ?
             WHERE date = ? AND compliance IS NULL
-        """, (compliance, actual_action, date))
+        """,
+            (compliance, actual_action, date),
+        )
     return cursor.rowcount > 0
 
 
-def update_user_feedback(conn: sqlite3.Connection, *,
-                         date: str,
-                         recommendation_type: str = "exercise",
-                         user_feedback: str) -> bool:
+def update_user_feedback(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    recommendation_type: str = "exercise",
+    user_feedback: str,
+) -> bool:
     """记录用户文字反馈。
 
     将 user_feedback 写入 user_feedback 列。
     返回 True 表示成功更新了至少一条记录。
     """
-    cursor = conn.execute("""
+    cursor = conn.execute(
+        """
         UPDATE recommendation_feedback
         SET user_feedback = ?
         WHERE date = ? AND recommendation_type = ?
-    """, (user_feedback, date, recommendation_type))
+    """,
+        (user_feedback, date, recommendation_type),
+    )
     return cursor.rowcount > 0
 
 
-def update_recommendation_quality_score(conn: sqlite3.Connection, *,
-                                        date: str,
-                                        recommendation_type: str = "exercise",
-                                        quality_score: float) -> bool:
+def update_recommendation_quality_score(
+    conn: sqlite3.Connection,
+    *,
+    date: str,
+    recommendation_type: str = "exercise",
+    quality_score: float,
+) -> bool:
     """更新反馈记录的 quality_score。
 
     返回 True 表示成功更新了至少一条记录。
     """
-    cursor = conn.execute("""
+    cursor = conn.execute(
+        """
         UPDATE recommendation_feedback
         SET quality_score = ?
         WHERE date = ? AND recommendation_type = ?
-    """, (round(quality_score, 4), date, recommendation_type))
+    """,
+        (round(quality_score, 4), date, recommendation_type),
+    )
     return cursor.rowcount > 0
 
 
-def query_feedback_by_date_range(conn: sqlite3.Connection,
-                                 start: str, end: str,
-                                 recommendation_type: str = None) -> list[dict]:
+def query_feedback_by_date_range(
+    conn: sqlite3.Connection, start: str, end: str, recommendation_type: str = None
+) -> list[dict]:
     """查询日期范围内的反馈记录，可按类型过滤。"""
     if recommendation_type:
         rows = conn.execute(
@@ -654,30 +755,35 @@ def query_feedback_by_date_range(conn: sqlite3.Connection,
                WHERE date BETWEEN ? AND ?
                  AND recommendation_type = ?
                ORDER BY date""",
-            (start, end, recommendation_type)
+            (start, end, recommendation_type),
         ).fetchall()
     else:
         rows = conn.execute(
             """SELECT * FROM recommendation_feedback
                WHERE date BETWEEN ? AND ?
                ORDER BY date""",
-            (start, end)
+            (start, end),
         ).fetchall()
     return [dict(row) for row in rows]
 
 
 # ─── 学习偏好 CRUD（Phase 4）────────────────────────────────────────
 
-def upsert_learned_preference(conn: sqlite3.Connection, *,
-                               preference_type: str,
-                               preference_key: str,
-                               preference_value: str,
-                               confidence_score: float = 0.5,
-                               evidence_count: int = 1,
-                               goal_id: int = None,
-                               status: str = "active"):
+
+def upsert_learned_preference(
+    conn: sqlite3.Connection,
+    *,
+    preference_type: str,
+    preference_key: str,
+    preference_value: str,
+    confidence_score: float = 0.5,
+    evidence_count: int = 1,
+    goal_id: int = None,
+    status: str = "active",
+):
     """写入或更新一条学习到的偏好（以 type+key 为唯一键）。"""
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO learned_preferences
             (preference_type, preference_key, preference_value,
              confidence_score, evidence_count, last_updated, goal_id, status)
@@ -690,13 +796,22 @@ def upsert_learned_preference(conn: sqlite3.Connection, *,
             goal_id          = CASE WHEN excluded.goal_id IS NOT NULL
                                THEN excluded.goal_id ELSE learned_preferences.goal_id END,
             status           = excluded.status
-    """, (preference_type, preference_key, preference_value,
-          confidence_score, evidence_count, goal_id, status))
+    """,
+        (
+            preference_type,
+            preference_key,
+            preference_value,
+            confidence_score,
+            evidence_count,
+            goal_id,
+            status,
+        ),
+    )
 
 
-def query_learned_preferences(conn: sqlite3.Connection,
-                               preference_type: str = None,
-                               exclude_status: str = None) -> list[dict]:
+def query_learned_preferences(
+    conn: sqlite3.Connection, preference_type: str = None, exclude_status: str = None
+) -> list[dict]:
     """查询学习偏好，可按 preference_type 和 exclude_status 过滤。
 
     exclude_status 为 None 时返回所有状态；传入状态值则排除该状态（同时保留 NULL 旧数据）。
@@ -706,21 +821,21 @@ def query_learned_preferences(conn: sqlite3.Connection,
             """SELECT * FROM learned_preferences
                WHERE preference_type = ? AND (status != ? OR status IS NULL)
                ORDER BY confidence_score DESC""",
-            (preference_type, exclude_status)
+            (preference_type, exclude_status),
         ).fetchall()
     elif preference_type:
         rows = conn.execute(
             """SELECT * FROM learned_preferences
                WHERE preference_type = ?
                ORDER BY confidence_score DESC""",
-            (preference_type,)
+            (preference_type,),
         ).fetchall()
     elif exclude_status:
         rows = conn.execute(
             """SELECT * FROM learned_preferences
                WHERE status != ? OR status IS NULL
                ORDER BY preference_type, confidence_score DESC""",
-            (exclude_status,)
+            (exclude_status,),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -730,28 +845,33 @@ def query_learned_preferences(conn: sqlite3.Connection,
     return [dict(row) for row in rows]
 
 
-def query_avg_quality_for_preference(conn: sqlite3.Connection,
-                                     recent_days: int = 30) -> float | None:
+def query_avg_quality_for_preference(
+    conn: sqlite3.Connection, recent_days: int = 30
+) -> float | None:
     """查询近期全局平均 quality_score，作为偏好效果的代理指标。"""
-    from datetime import date, timedelta
+    from datetime import timedelta
+
     since = (date.today() - timedelta(days=recent_days)).isoformat()
     row = conn.execute(
         """SELECT AVG(quality_score) as avg_q, COUNT(*) as n
            FROM recommendation_feedback
            WHERE quality_score IS NOT NULL
              AND date >= ?""",
-        (since,)
+        (since,),
     ).fetchone()
     if row and row["n"] >= 3:
         return round(row["avg_q"], 4)
     return None
 
 
-def update_preference_status(conn: sqlite3.Connection, *,
-                              preference_type: str,
-                              preference_key: str,
-                              status: str,
-                              confidence_multiplier: float = 1.0):
+def update_preference_status(
+    conn: sqlite3.Connection,
+    *,
+    preference_type: str,
+    preference_key: str,
+    status: str,
+    confidence_multiplier: float = 1.0,
+):
     """更新偏好的生命周期状态，可选调整置信度。"""
     conn.execute(
         """UPDATE learned_preferences
@@ -759,23 +879,28 @@ def update_preference_status(conn: sqlite3.Connection, *,
                confidence_score = ROUND(MIN(0.95, confidence_score * ?), 3),
                last_updated = datetime('now','localtime')
            WHERE preference_type = ? AND preference_key = ?""",
-        (status, confidence_multiplier, preference_type, preference_key)
+        (status, confidence_multiplier, preference_type, preference_key),
     )
 
 
 # ─── 就医预约提醒 CRUD（Phase 6）────────────────────────────────────
 
-def upsert_appointment(conn: sqlite3.Connection, *,
-                       condition: str,
-                       hospital: Optional[str],
-                       department: Optional[str],
-                       due_date: str,
-                       interval_months: int,
-                       source_exam_id: Optional[int] = None,
-                       source_table: Optional[str] = None,
-                       notes: Optional[str] = None):
+
+def upsert_appointment(
+    conn: sqlite3.Connection,
+    *,
+    condition: str,
+    hospital: Optional[str],
+    department: Optional[str],
+    due_date: str,
+    interval_months: int,
+    source_exam_id: Optional[int] = None,
+    source_table: Optional[str] = None,
+    notes: Optional[str] = None,
+):
     """写入或更新一条预约提醒（以 condition 为唯一键，一个病情只保留一条最新预约）。"""
-    cursor = conn.execute("""
+    cursor = conn.execute(
+        """
         UPDATE appointments
         SET due_date        = ?,
             interval_months = ?,
@@ -787,23 +912,42 @@ def upsert_appointment(conn: sqlite3.Connection, *,
             status          = 'pending',
             updated_at      = datetime('now','localtime')
         WHERE condition = ?
-    """, (due_date, interval_months, source_exam_id, source_table,
-          hospital, department, notes, condition))
+    """,
+        (
+            due_date,
+            interval_months,
+            source_exam_id,
+            source_table,
+            hospital,
+            department,
+            notes,
+            condition,
+        ),
+    )
     if cursor.rowcount == 0:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO appointments
                 (condition, hospital, department, due_date, interval_months,
                  source_exam_id, source_table, status, notes, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, datetime('now','localtime'))
-        """, (condition, hospital, department, due_date, interval_months,
-              source_exam_id, source_table, notes))
+        """,
+            (
+                condition,
+                hospital,
+                department,
+                due_date,
+                interval_months,
+                source_exam_id,
+                source_table,
+                notes,
+            ),
+        )
 
 
 def get_all_appointments(conn: sqlite3.Connection) -> list[dict]:
     """查询所有预约提醒，按 due_date 升序。"""
-    rows = conn.execute(
-        "SELECT * FROM appointments ORDER BY due_date ASC"
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM appointments ORDER BY due_date ASC").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -817,9 +961,7 @@ def get_pending_appointments(conn: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def mark_appointment_reminded(conn: sqlite3.Connection, *,
-                               appointment_id: int,
-                               days_left: int):
+def mark_appointment_reminded(conn: sqlite3.Connection, *, appointment_id: int, days_left: int):
     """标记预约已在 days_left 天前被提醒（14 或 7）。"""
     status = f"reminded_{days_left}"
     conn.execute(
@@ -838,39 +980,43 @@ def mark_appointment_completed(conn: sqlite3.Connection, appointment_id: int):
 
 # ─── Goals CRUD（Goals 子系统）────────────────────────────────────────
 
-def insert_goal_progress(conn: sqlite3.Connection, *,
-                         goal_id: int,
-                         date: str,
-                         current_value: float = None,
-                         delta_from_baseline: float = None,
-                         progress_pct: float = None,
-                         note: str = None):
+
+def insert_goal_progress(
+    conn: sqlite3.Connection,
+    *,
+    goal_id: int,
+    date: str,
+    current_value: float = None,
+    delta_from_baseline: float = None,
+    progress_pct: float = None,
+    note: str = None,
+):
     """写入一条目标每日进度快照（INSERT OR REPLACE）。"""
-    conn.execute("""
+    conn.execute(
+        """
         INSERT OR REPLACE INTO goal_progress
             (goal_id, date, current_value, delta_from_baseline, progress_pct, note)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (goal_id, date, current_value, delta_from_baseline, progress_pct, note))
+    """,
+        (goal_id, date, current_value, delta_from_baseline, progress_pct, note),
+    )
 
 
 def query_active_goals(conn: sqlite3.Connection) -> list[dict]:
     """查询所有 active 目标，按 priority 排序。"""
-    rows = conn.execute(
-        "SELECT * FROM goals WHERE status = 'active' ORDER BY priority"
-    ).fetchall()
+    rows = conn.execute("SELECT * FROM goals WHERE status = 'active' ORDER BY priority").fetchall()
     return [dict(row) for row in rows]
 
 
-def query_goal_progress_range(conn: sqlite3.Connection,
-                               goal_id: int,
-                               start_date: str,
-                               end_date: str) -> list[dict]:
+def query_goal_progress_range(
+    conn: sqlite3.Connection, goal_id: int, start_date: str, end_date: str
+) -> list[dict]:
     """查询指定目标在日期范围内的进度记录。"""
     rows = conn.execute(
         """SELECT * FROM goal_progress
            WHERE goal_id = ? AND date BETWEEN ? AND ?
            ORDER BY date""",
-        (goal_id, start_date, end_date)
+        (goal_id, start_date, end_date),
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -943,7 +1089,14 @@ _LIVER_KIDNEY_METRICS = {
         "ref_high": 40,
     },
     "ggt": {
-        "lab_item_names": ["γ-谷氨酰转肽酶", "GGT", "谷氨酰转肽酶", "r-谷氨酰转肽酶", "r-GT", "γ-GT"],
+        "lab_item_names": [
+            "γ-谷氨酰转肽酶",
+            "GGT",
+            "谷氨酰转肽酶",
+            "r-谷氨酰转肽酶",
+            "r-GT",
+            "γ-GT",
+        ],
         "checkup_column": "ggt",
         "unit": "U/L",
         "ref_low": None,
@@ -984,7 +1137,9 @@ def query_lab_trends_unified(
     """
     config = _LIVER_KIDNEY_METRICS.get(metric_key)
     if not config:
-        raise ValueError(f"未知的指标代码: {metric_key}，支持的指标: {list(_LIVER_KIDNEY_METRICS.keys())}")
+        raise ValueError(
+            f"未知的指标代码: {metric_key}，支持的指标: {list(_LIVER_KIDNEY_METRICS.keys())}"
+        )
 
     # 构建 lab_results 的查询条件
     item_names = config["lab_item_names"]
@@ -1045,15 +1200,17 @@ def query_lab_trends_unified(
         if is_abnormal == 0 and row_ref_low is not None and row_ref_high is not None:
             is_abnormal = 1 if (val < row_ref_low or val > row_ref_high) else 0
 
-        results.append({
-            "date": row["date"],
-            "value": val,
-            "source": "lab_results",
-            "unit": row["unit"] or unit,
-            "ref_low": row_ref_low,
-            "ref_high": row_ref_high,
-            "is_abnormal": is_abnormal,
-        })
+        results.append(
+            {
+                "date": row["date"],
+                "value": val,
+                "source": "lab_results",
+                "unit": row["unit"] or unit,
+                "ref_low": row_ref_low,
+                "ref_high": row_ref_high,
+                "is_abnormal": is_abnormal,
+            }
+        )
 
     for row in checkup_rows:
         val = row["value"]
@@ -1064,15 +1221,17 @@ def query_lab_trends_unified(
         if ref_low is not None and ref_high is not None:
             is_abnormal = 1 if (val < ref_low or val > ref_high) else 0
 
-        results.append({
-            "date": row["date"],
-            "value": val,
-            "source": "annual_checkups",
-            "unit": unit,
-            "ref_low": ref_low,
-            "ref_high": ref_high,
-            "is_abnormal": is_abnormal,
-        })
+        results.append(
+            {
+                "date": row["date"],
+                "value": val,
+                "source": "annual_checkups",
+                "unit": unit,
+                "ref_low": ref_low,
+                "ref_high": ref_high,
+                "is_abnormal": is_abnormal,
+            }
+        )
 
     # 按日期排序
     results.sort(key=lambda x: x["date"])
@@ -1095,13 +1254,11 @@ def query_multiple_metrics(
     Returns:
         字典，key 为指标代码，value 为该指标的时间序列列表
     """
-    return {
-        key: query_lab_trends_unified(conn, key, start_date, end_date)
-        for key in metric_keys
-    }
+    return {key: query_lab_trends_unified(conn, key, start_date, end_date) for key in metric_keys}
 
 
 # ─── 同步日志 CRUD ───────────────────────────────────────────────────
+
 
 def insert_sync_log(
     conn: sqlite3.Connection,
@@ -1145,6 +1302,7 @@ def query_failed_sync_dates(
 
 # ─── 用户档案 CRUD ──────────────────────────────────────────────────
 
+
 def upsert_user_profile(conn: sqlite3.Connection, key: str, value: str):
     """写入/更新一条用户档案（幂等）。"""
     conn.execute(
@@ -1159,9 +1317,7 @@ def upsert_user_profile(conn: sqlite3.Connection, key: str, value: str):
 
 def query_user_profile(conn: sqlite3.Connection, key: str) -> Optional[str]:
     """查询单条用户档案值。"""
-    row = conn.execute(
-        "SELECT value FROM user_profile WHERE key = ?", (key,)
-    ).fetchone()
+    row = conn.execute("SELECT value FROM user_profile WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
 
 

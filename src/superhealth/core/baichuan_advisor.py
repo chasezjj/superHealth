@@ -11,9 +11,7 @@ API 格式：OpenAI 兼容（base_url = https://api.baichuan-ai.com/v1）
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -21,8 +19,8 @@ from superhealth.config import load as load_config
 from superhealth.core.llm_advisor import BaseHealthAdvisor
 
 if TYPE_CHECKING:
-    from superhealth.core.health_profile_builder import HealthProfile
     from superhealth.core.assessment_models import AssessmentResult
+    from superhealth.core.health_profile_builder import HealthProfile
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +38,7 @@ class BaichuanMedicalAdvisor(BaseHealthAdvisor):
         if self._client is None:
             try:
                 from openai import OpenAI
+
                 self._client = OpenAI(
                     api_key=self.baichuan_cfg.api_key,
                     base_url=self.baichuan_cfg.base_url,

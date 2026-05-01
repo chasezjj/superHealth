@@ -12,8 +12,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from statistics import mean
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from superhealth.core.health_profile_builder import HealthProfile
@@ -28,7 +27,9 @@ def _zscore(value: Optional[float], mean: Optional[float], std: Optional[float])
     return (value - mean) / std
 
 
-def _calc_steps_ratio(steps_7d: Optional[float], steps_90d: Optional[float], details: list[str]) -> Optional[float]:
+def _calc_steps_ratio(
+    steps_7d: Optional[float], steps_90d: Optional[float], details: list[str]
+) -> Optional[float]:
     """计算步数 ratio（7天 vs 90天基线，上限10000）。数据不足时返回 None，并自动追加 details。"""
     if steps_7d is not None and steps_90d is not None:
         effective_baseline = min(steps_90d, 10_000)
@@ -43,27 +44,28 @@ def _calc_steps_ratio(steps_7d: Optional[float], steps_90d: Optional[float], det
 @dataclass
 class AssessmentResult:
     """某维度的评估结果。"""
+
     model_name: str
-    label: str          # 中文模型名
-    score: int          # 0-100
-    status: str         # 状态标签：优秀/良好/一般/需关注
-    summary: str        # 一句话总结
-    details: list[str] = field(default_factory=list)   # 详细说明
-    tags: list[str] = field(default_factory=list)      # 标签（用于 LLM prompt）
+    label: str  # 中文模型名
+    score: int  # 0-100
+    status: str  # 状态标签：优秀/良好/一般/需关注
+    summary: str  # 一句话总结
+    details: list[str] = field(default_factory=list)  # 详细说明
+    tags: list[str] = field(default_factory=list)  # 标签（用于 LLM prompt）
 
 
 class AssessmentModel(ABC):
     """评估模型抽象基类。"""
 
     @abstractmethod
-    def assess(self,
-               daily_data: dict,
-               vitals_data: dict,
-               profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         """返回该维度的评估结果。"""
 
 
 # ─── 恢复评估模型 ─────────────────────────────────────────────────────
+
 
 class RecoveryModel(AssessmentModel):
     """恢复状态评估（从 daily_report.py assess_recovery() 提取）。
@@ -76,7 +78,9 @@ class RecoveryModel(AssessmentModel):
     - 压力水平：10%
     """
 
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         score = 0
         details = []
         tags = []
@@ -108,7 +112,9 @@ class RecoveryModel(AssessmentModel):
                     sleep_critical = True
                     negative_factors += 2
                     tags.append("sleep_critical")
-                details.append(f"睡眠评分 {sleep_score}（个人基线 {profile.trends['sleep_90d_avg']:.0f}±{profile.trends['sleep_90d_std']:.0f}，z={sleep_z:+.1f}）")
+                details.append(
+                    f"睡眠评分 {sleep_score}（个人基线 {profile.trends['sleep_90d_avg']:.0f}±{profile.trends['sleep_90d_std']:.0f}，z={sleep_z:+.1f}）"
+                )
             else:
                 # fallback：绝对阈值
                 if sleep_score >= 85:
@@ -191,7 +197,9 @@ class RecoveryModel(AssessmentModel):
                     bb_critical = True
                     negative_factors += 2
                     tags.append("bb_critical")
-                details.append(f"Body Battery {bb_wake:.0f}（个人基线 {profile.trends['bb_90d_avg']:.0f}±{profile.trends['bb_90d_std']:.0f}，z={bb_z:+.1f}）")
+                details.append(
+                    f"Body Battery {bb_wake:.0f}（个人基线 {profile.trends['bb_90d_avg']:.0f}±{profile.trends['bb_90d_std']:.0f}，z={bb_z:+.1f}）"
+                )
             else:
                 if bb_wake >= 80:
                     score += 20
@@ -230,7 +238,9 @@ class RecoveryModel(AssessmentModel):
                 else:
                     score += 0
                     negative_factors += 1
-                details.append(f"静息心率 {rhr:.0f} bpm（个人基线 {profile.trends['rhr_90d_avg']:.0f}±{profile.trends['rhr_90d_std']:.0f}，z={rhr_z:+.1f}）")
+                details.append(
+                    f"静息心率 {rhr:.0f} bpm（个人基线 {profile.trends['rhr_90d_avg']:.0f}±{profile.trends['rhr_90d_std']:.0f}，z={rhr_z:+.1f}）"
+                )
             else:
                 # fallback：7天均值
                 avg7_rhr = daily_data.get("avg7_resting_hr")
@@ -273,7 +283,9 @@ class RecoveryModel(AssessmentModel):
                     score += 0
                     negative_factors += 1.5
                     tags.append("stress_high")
-                details.append(f"平均压力 {avg_stress:.0f}（个人基线 {profile.trends['stress_90d_avg']:.0f}±{profile.trends['stress_90d_std']:.0f}，z={stress_z:+.1f}）")
+                details.append(
+                    f"平均压力 {avg_stress:.0f}（个人基线 {profile.trends['stress_90d_avg']:.0f}±{profile.trends['stress_90d_std']:.0f}，z={stress_z:+.1f}）"
+                )
             else:
                 if avg_stress < 25:
                     score += 10
@@ -339,6 +351,7 @@ class RecoveryModel(AssessmentModel):
 
 # ─── 睡眠质量模型 ─────────────────────────────────────────────────────
 
+
 class SleepQualityModel(AssessmentModel):
     """睡眠质量多维评估。
 
@@ -350,12 +363,14 @@ class SleepQualityModel(AssessmentModel):
     趋势对比可额外扣分（最多 -15）。
     """
 
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
-        sleep_score    = daily_data.get("sleep_score")
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
+        sleep_score = daily_data.get("sleep_score")
         sleep_total_min = daily_data.get("sleep_total_min")
-        sleep_deep_min  = daily_data.get("sleep_deep_min")
-        sleep_rem_min   = daily_data.get("sleep_rem_min")
-        spo2_lowest     = daily_data.get("spo2_lowest")
+        sleep_deep_min = daily_data.get("sleep_deep_min")
+        sleep_rem_min = daily_data.get("sleep_rem_min")
+        spo2_lowest = daily_data.get("spo2_lowest")
         details = []
         tags = []
 
@@ -385,7 +400,9 @@ class SleepQualityModel(AssessmentModel):
         stage_part = 5  # 无数据时给中间值
         if sleep_total_min and sleep_deep_min is not None and sleep_rem_min is not None:
             quality_ratio = (sleep_deep_min + sleep_rem_min) / sleep_total_min
-            details.append(f"深睡 {sleep_deep_min}min + REM {sleep_rem_min}min（优质睡眠占比 {quality_ratio:.0%}）")
+            details.append(
+                f"深睡 {sleep_deep_min}min + REM {sleep_rem_min}min（优质睡眠占比 {quality_ratio:.0%}）"
+            )
             if quality_ratio >= 0.50:
                 stage_part = 10
             elif quality_ratio >= 0.40:
@@ -412,7 +429,9 @@ class SleepQualityModel(AssessmentModel):
                 tags.append("spo2_critical")
 
         score = garmin_part + duration_part + stage_part + spo2_part
-        details.append(f"Garmin评分 {sleep_score}（→{garmin_part}）+ 时长{duration_part} + 分期{stage_part} + SpO2_{spo2_part}")
+        details.append(
+            f"Garmin评分 {sleep_score}（→{garmin_part}）+ 时长{duration_part} + 分期{stage_part} + SpO2_{spo2_part}"
+        )
 
         # ── 状态判断 ───────────────────────────────────────────────────
         if score >= 88:
@@ -430,12 +449,14 @@ class SleepQualityModel(AssessmentModel):
 
         # ── 5. 7天 vs 90天趋势修正 ────────────────────────────────────
         avg_90d = profile.trends.get("sleep_90d_avg")
-        avg_7d  = profile.trends.get("sleep_7d_avg")
+        avg_7d = profile.trends.get("sleep_7d_avg")
         std_90d = profile.trends.get("sleep_90d_std")
         if avg_90d is not None and avg_7d is not None:
             diff = avg_7d - avg_90d
             sigma = std_90d or 5.0
-            details.append(f"近7天均值 {avg_7d:.0f} vs 90天基线 {avg_90d:.0f}±{sigma:.0f}（{'+' if diff >= 0 else ''}{diff:.0f}）")
+            details.append(
+                f"近7天均值 {avg_7d:.0f} vs 90天基线 {avg_90d:.0f}±{sigma:.0f}（{'+' if diff >= 0 else ''}{diff:.0f}）"
+            )
             if diff <= -1.5 * sigma:
                 score = max(score - 15, 20)
                 tags.append("sleep_trending_down")
@@ -452,7 +473,11 @@ class SleepQualityModel(AssessmentModel):
                 details.append("近期睡眠优于个人基线")
 
         score = min(100, max(0, score))
-        summary_baseline = f"（今日 {sleep_score}，7天均值 {avg_7d:.0f}，90天基线 {avg_90d:.0f}）" if avg_90d and avg_7d else f"（{sleep_score}分）"
+        summary_baseline = (
+            f"（今日 {sleep_score}，7天均值 {avg_7d:.0f}，90天基线 {avg_90d:.0f}）"
+            if avg_90d and avg_7d
+            else f"（{sleep_score}分）"
+        )
         return AssessmentResult(
             model_name="SleepQualityModel",
             label="睡眠质量",
@@ -466,14 +491,17 @@ class SleepQualityModel(AssessmentModel):
 
 # ─── 压力管理模型 ─────────────────────────────────────────────────────
 
+
 class StressModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = []
 
         stress_yesterday = profile.trends.get("stress_yesterday")
-        stress_today     = daily_data.get("avg_stress")   # 早报时只有凌晨~7点，仅作参考
-        avg_7d  = profile.trends.get("stress_7d_avg")
+        stress_today = daily_data.get("avg_stress")  # 早报时只有凌晨~7点，仅作参考
+        avg_7d = profile.trends.get("stress_7d_avg")
         avg_90d = profile.trends.get("stress_90d_avg")
 
         # 主评分依据：昨日完整压力；无昨日数据时降级用7天均值
@@ -500,7 +528,9 @@ class StressModel(AssessmentModel):
             else:
                 score, status = 20, "过高"
                 tags.append("stress_critical")
-            details.append(f"昨日压力 {primary:.0f}（个人基线 {avg_90d:.0f}±{std_90d:.0f}，z={stress_z:+.1f}）")
+            details.append(
+                f"昨日压力 {primary:.0f}（个人基线 {avg_90d:.0f}±{std_90d:.0f}，z={stress_z:+.1f}）"
+            )
         else:
             # fallback：绝对阈值
             if primary < 25:
@@ -525,7 +555,9 @@ class StressModel(AssessmentModel):
         if avg_90d is not None and avg_7d is not None:
             diff = avg_7d - avg_90d
             sigma = std_90d or 5.0
-            details.append(f"近7天均值 {avg_7d:.0f} vs 90天基线 {avg_90d:.0f}±{sigma:.0f}（{'+' if diff >= 0 else ''}{diff:.0f}）")
+            details.append(
+                f"近7天均值 {avg_7d:.0f} vs 90天基线 {avg_90d:.0f}±{sigma:.0f}（{'+' if diff >= 0 else ''}{diff:.0f}）"
+            )
             if diff > 1.5 * sigma:
                 score = max(score - 20, 20)
                 tags.append("stress_trending_up")
@@ -566,8 +598,11 @@ class StressModel(AssessmentModel):
 
 # ─── 心血管模型 ───────────────────────────────────────────────────────
 
+
 class CardiovascularModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = []
         score = 80  # 基础分
@@ -627,11 +662,15 @@ class CardiovascularModel(AssessmentModel):
                 if diff > 8:
                     score -= 8
                     tags.append("rhr_elevated")
-                    details.append(f"静息心率 {rhr:.0f} bpm（高于个人基线 {rhr_baseline:.0f} +{diff:.0f}）")
+                    details.append(
+                        f"静息心率 {rhr:.0f} bpm（高于个人基线 {rhr_baseline:.0f} +{diff:.0f}）"
+                    )
                 elif diff > 4:
                     score -= 4
                     tags.append("rhr_elevated")
-                    details.append(f"静息心率 {rhr:.0f} bpm（高于个人基线 {rhr_baseline:.0f} +{diff:.0f}）")
+                    details.append(
+                        f"静息心率 {rhr:.0f} bpm（高于个人基线 {rhr_baseline:.0f} +{diff:.0f}）"
+                    )
                 else:
                     details.append(f"静息心率 {rhr:.0f} bpm（个人基线 {rhr_baseline:.0f}，正常）")
             else:
@@ -645,7 +684,9 @@ class CardiovascularModel(AssessmentModel):
         else:
             status = "需关注"
 
-        bp_summary = f"（血压 {systolic:.0f}/{diastolic:.0f}，{bp_label}）" if systolic and diastolic else ""
+        bp_summary = (
+            f"（血压 {systolic:.0f}/{diastolic:.0f}，{bp_label}）" if systolic and diastolic else ""
+        )
         return AssessmentResult(
             model_name="CardiovascularModel",
             label="心血管健康",
@@ -659,8 +700,11 @@ class CardiovascularModel(AssessmentModel):
 
 # ─── 代谢管理模型（高尿酸）────────────────────────────────────────────
 
+
 class MetabolicModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = ["hyperuricemia_active"]
         score = 70  # 基础分（已用药控制）
@@ -708,8 +752,11 @@ class MetabolicModel(AssessmentModel):
 
 # ─── 青光眼管理模型 ───────────────────────────────────────────────────
 
+
 class GlaucomaModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = ["glaucoma_active", "avoid_valsalva"]
         score = 70  # 基础分（青光眼须持续管理）
@@ -784,7 +831,9 @@ class GlaucomaModel(AssessmentModel):
         elif stress_7d and stress_90d and (stress_7d - stress_90d) >= 4:
             score -= 3
             tags.append("stress_trending_iop_risk")
-            details.append(f"近期压力趋升（7天均值 {stress_7d:.0f} vs 基线 {stress_90d:.0f}），注意眼压波动")
+            details.append(
+                f"近期压力趋升（7天均值 {stress_7d:.0f} vs 基线 {stress_90d:.0f}），注意眼压波动"
+            )
 
         score = max(0, min(100, score))
         if score >= 80:
@@ -807,14 +856,17 @@ class GlaucomaModel(AssessmentModel):
 
 # ─── 血脂管理模型 ─────────────────────────────────────────────────────
 
+
 class LipidModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = []
         score = 85  # 基础分（无异常）
 
         ldl = profile.trends.get("ldl_latest")
-        tg  = profile.trends.get("tg_latest")
+        tg = profile.trends.get("tg_latest")
         hdl = profile.trends.get("hdl_latest")
         ldl_date = profile.trends.get("ldl_date", "")
 
@@ -886,7 +938,7 @@ class LipidModel(AssessmentModel):
             status = "需积极干预"
 
         ldl_summary = f"LDL {ldl:.2f}" if ldl else ""
-        tg_summary  = f"TG {tg:.2f}" if tg else ""
+        tg_summary = f"TG {tg:.2f}" if tg else ""
         bp_parts = "，".join(x for x in [ldl_summary, tg_summary] if x)
         return AssessmentResult(
             model_name="LipidModel",
@@ -901,14 +953,19 @@ class LipidModel(AssessmentModel):
 
 # ─── 体成分模型 ───────────────────────────────────────────────────────
 
+
 class BodyCompositionModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         bc = profile.body_composition
         details = []
         tags = []
 
         if bc.bmi is None:
-            return AssessmentResult("BodyCompositionModel", "体成分管理", 60, "无数据", "缺少体成分数据")
+            return AssessmentResult(
+                "BodyCompositionModel", "体成分管理", 60, "无数据", "缺少体成分数据"
+            )
 
         if bc.bmi_status == "underweight":
             score = 60
@@ -943,7 +1000,12 @@ class BodyCompositionModel(AssessmentModel):
             details.append(f"BMI {bc.bmi}（肥胖），优先减重")
 
         if bc.body_fat_pct is not None:
-            fat_status_cn = {"low": "偏低", "normal": "正常", "high": "偏高", "very_high": "过高"}.get(bc.body_fat_status, bc.body_fat_status)
+            fat_status_cn = {
+                "low": "偏低",
+                "normal": "正常",
+                "high": "偏高",
+                "very_high": "过高",
+            }.get(bc.body_fat_status, bc.body_fat_status)
             details.append(f"体脂率 {bc.body_fat_pct:.1f}%（{fat_status_cn}）")
             if bc.body_fat_status in ("high", "very_high"):
                 score = max(0, score - 10)
@@ -967,8 +1029,11 @@ class BodyCompositionModel(AssessmentModel):
 
 # ─── 基因风险管理模型 ─────────────────────────────────────────────────
 
+
 class GeneticRiskModel(AssessmentModel):
-    def assess(self, daily_data: dict, vitals_data: dict, profile: "HealthProfile") -> AssessmentResult:
+    def assess(
+        self, daily_data: dict, vitals_data: dict, profile: "HealthProfile"
+    ) -> AssessmentResult:
         details = []
         tags = ["genetic_risk_aware"]
 
@@ -1024,7 +1089,9 @@ class GeneticRiskModel(AssessmentModel):
         if stress_7d and stress_90d and (stress_7d - stress_90d) >= 4:
             score -= 5
             tags.append("stress_genetic_risk")
-            details.append(f"近期压力高于基线（7天 {stress_7d:.0f} vs 90天 {stress_90d:.0f}），氧化应激升高")
+            details.append(
+                f"近期压力高于基线（7天 {stress_7d:.0f} vs 90天 {stress_90d:.0f}），氧化应激升高"
+            )
         elif avg_stress and avg_stress > 45:
             score -= 8
             tags.append("stress_genetic_risk")
