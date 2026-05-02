@@ -30,6 +30,11 @@ dist/
 venv/
 .venv/
 
+# 测试覆盖率
+.coverage
+.coverage.*
+htmlcov/
+
 # IDE
 .idea/
 .vscode/
