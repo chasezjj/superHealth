@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import streamlit as st
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+from superhealth.dashboard.components import disclaimer
+from superhealth.database import DEFAULT_DB_PATH as DB_PATH
 
 
 def render():
@@ -211,3 +210,5 @@ def render():
                     st.markdown(f"**结论**：{h['conclusion']}")
                 if h.get("conclusion_date"):
                     st.caption(f"结案日期: {h['conclusion_date']}")
+
+    disclaimer.render()

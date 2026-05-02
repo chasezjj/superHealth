@@ -6,6 +6,7 @@ from datetime import date
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import chart_trend_prediction
 from superhealth.dashboard.components.gauges import factor_bar_chart, risk_gauge, score_label
 from superhealth.dashboard.data_loader import (
@@ -56,13 +57,15 @@ def render():
 
             ua_result = uric_acid_risk.compute()
 
-        _render_risk_card(
-            ua_result,
-            "尿酸风险",
-            labels=["低风险", "中等风险", "高风险", "极高风险"],
-        )
+        if ua_result.get("latest_ua") is None:
+            st.info("暂无尿酸检测数据。补充尿酸化验数据后，系统将进行风险评估。")
+        else:
+            _render_risk_card(
+                ua_result,
+                "尿酸风险",
+                labels=["低风险", "中等风险", "高风险", "极高风险"],
+            )
 
-        if ua_result.get("latest_ua"):
             ua = ua_result["latest_ua"]
             st.caption(
                 f"最新尿酸：{ua:.0f} μmol/L "
@@ -70,17 +73,17 @@ def render():
                 f"参考上限 420）"
             )
 
-        comorbidities = ua_result.get("comorbidities", [])
-        if comorbidities:
-            st.markdown("**合并症：**")
-            for c in comorbidities:
-                st.markdown(f"- {c}")
+            comorbidities = ua_result.get("comorbidities", [])
+            if comorbidities:
+                st.markdown("**合并症：**")
+                for c in comorbidities:
+                    st.markdown(f"- {c}")
 
-        triggers = ua_result.get("triggers", [])
-        if triggers:
-            st.markdown("**发作诱因：**")
-            for t in triggers:
-                st.markdown(f"- {t}")
+            triggers = ua_result.get("triggers", [])
+            if triggers:
+                st.markdown("**发作诱因：**")
+                for t in triggers:
+                    st.markdown(f"- {t}")
 
     # ── Tab2：高血压风险 ─────────────────────────────────────────────
     with tab2:
@@ -91,35 +94,34 @@ def render():
 
             ht_result = hypertension_risk.compute()
 
-        _render_risk_card(
-            ht_result,
-            "高血压风险",
-            labels=["低危", "中危", "高危", "极高危"],
-        )
-
-        # 血压分级与最新值
         sbp = ht_result.get("latest_systolic")
         dbp = ht_result.get("latest_diastolic")
-        if sbp or dbp:
+        if sbp is None and dbp is None:
+            st.info("暂无血压测量数据。补充血压数据后，系统将进行风险评估。")
+        else:
+            _render_risk_card(
+                ht_result,
+                "高血压风险",
+                labels=["低危", "中危", "高危", "极高危"],
+            )
+
             sbp_str = f"{sbp:.0f}" if sbp else "未知"
             dbp_str = f"{dbp:.0f}" if dbp else "未知"
             st.caption(
                 f"最新血压：{sbp_str}/{dbp_str} mmHg （分级：{ht_result.get('bp_grade', '未知')}）"
             )
 
-        # 命中的危险因素
-        risk_factors = ht_result.get("risk_factors", [])
-        if risk_factors:
-            st.markdown("**命中的危险因素：**")
-            for rf in risk_factors:
-                st.markdown(f"- {rf}")
+            risk_factors = ht_result.get("risk_factors", [])
+            if risk_factors:
+                st.markdown("**命中的危险因素：**")
+                for rf in risk_factors:
+                    st.markdown(f"- {rf}")
 
-        # 靶器官损害
-        organ_damages = ht_result.get("organ_damages", [])
-        if organ_damages:
-            st.markdown("**靶器官损害：**")
-            for od in organ_damages:
-                st.markdown(f"- {od}")
+            organ_damages = ht_result.get("organ_damages", [])
+            if organ_damages:
+                st.markdown("**靶器官损害：**")
+                for od in organ_damages:
+                    st.markdown(f"- {od}")
 
     # ── Tab3：高血脂风险 ─────────────────────────────────────────────
     with tab3:
@@ -130,41 +132,42 @@ def render():
 
             hl_result = hyperlipidemia_risk.compute()
 
-        _render_risk_card(
-            hl_result,
-            "血脂风险",
-            labels=["低危", "中危", "高危", "极高危"],
-        )
-
-        # LDL-C 目标与达标情况
         ldl = hl_result.get("latest_ldl")
-        target = hl_result.get("ldl_target")
-        status = hl_result.get("ldl_status")
-        if ldl is not None:
-            st.caption(f"LDL-C：{ldl:.2f} mmol/L（目标 <{target}，{status}）")
-
-        # 血脂全貌
         tg = hl_result.get("latest_tg")
         hdl = hl_result.get("latest_hdl")
         tc = hl_result.get("latest_tc")
-        non_hdl = hl_result.get("non_hdl_c")
-        parts = []
-        if tg is not None:
-            parts.append(f"TG {tg:.2f}（{hl_result.get('tg_grade', '未知')}）")
-        if hdl is not None:
-            parts.append(f"HDL-C {hdl:.2f}")
-        if tc is not None:
-            parts.append(f"TC {tc:.2f}")
-        if non_hdl is not None:
-            parts.append(f"非HDL-C {non_hdl:.2f}")
-        if parts:
-            st.caption(" | ".join(parts))
+        if ldl is None and tg is None and hdl is None and tc is None:
+            st.info("暂无血脂检测数据。补充血脂化验数据（LDL-C、TG、HDL-C、TC）后，系统将进行风险评估。")
+        else:
+            _render_risk_card(
+                hl_result,
+                "血脂风险",
+                labels=["低危", "中危", "高危", "极高危"],
+            )
 
-        risk_factors = hl_result.get("risk_factors", [])
-        if risk_factors:
-            st.markdown(f"**心血管危险因素（{len(risk_factors)}项）：**")
-            for rf in risk_factors:
-                st.markdown(f"- {rf}")
+            target = hl_result.get("ldl_target")
+            status = hl_result.get("ldl_status")
+            if ldl is not None:
+                st.caption(f"LDL-C：{ldl:.2f} mmol/L（目标 <{target}，{status}）")
+
+            non_hdl = hl_result.get("non_hdl_c")
+            parts = []
+            if tg is not None:
+                parts.append(f"TG {tg:.2f}（{hl_result.get('tg_grade', '未知')}）")
+            if hdl is not None:
+                parts.append(f"HDL-C {hdl:.2f}")
+            if tc is not None:
+                parts.append(f"TC {tc:.2f}")
+            if non_hdl is not None:
+                parts.append(f"非HDL-C {non_hdl:.2f}")
+            if parts:
+                st.caption(" | ".join(parts))
+
+            risk_factors = hl_result.get("risk_factors", [])
+            if risk_factors:
+                st.markdown(f"**心血管危险因素（{len(risk_factors)}项）：**")
+                for rf in risk_factors:
+                    st.markdown(f"- {rf}")
 
     # ── Tab4：高血糖风险 ─────────────────────────────────────────────
     with tab4:
@@ -175,40 +178,40 @@ def render():
 
             hg_result = hyperglycemia_risk.compute()
 
-        _render_risk_card(
-            hg_result,
-            "高血糖风险",
-            labels=["低风险", "中等风险", "高风险", "极高风险"],
-        )
-
-        # 血糖数值
         fbg = hg_result.get("latest_fbg")
         hba1c = hg_result.get("latest_hba1c")
-        glu_parts = []
-        if fbg is not None:
-            glu_parts.append(f"空腹血糖 {fbg:.2f} mmol/L")
-        if hba1c is not None:
-            glu_parts.append(f"HbA1c {hba1c:.1f}%")
-        if glu_parts:
-            st.caption(f"{' | '.join(glu_parts)}（{hg_result.get('glu_grade', '未知')}）")
+        if fbg is None and hba1c is None:
+            st.info("暂无血糖检测数据。补充空腹血糖或 HbA1c 数据后，系统将进行风险评估。")
+        else:
+            _render_risk_card(
+                hg_result,
+                "高血糖风险",
+                labels=["低风险", "中等风险", "高风险", "极高风险"],
+            )
 
-        trend = hg_result.get("glu_trend")
-        if trend:
-            st.caption(f"血糖趋势：{trend}")
+            glu_parts = []
+            if fbg is not None:
+                glu_parts.append(f"空腹血糖 {fbg:.2f} mmol/L")
+            if hba1c is not None:
+                glu_parts.append(f"HbA1c {hba1c:.1f}%")
+            if glu_parts:
+                st.caption(f"{' | '.join(glu_parts)}（{hg_result.get('glu_grade', '未知')}）")
 
-        # 危险因素
-        risk_factors = hg_result.get("risk_factors", [])
-        if risk_factors:
-            st.markdown(f"**危险因素（{len(risk_factors)}项）：**")
-            for rf in risk_factors:
-                st.markdown(f"- {rf}")
+            trend = hg_result.get("glu_trend")
+            if trend:
+                st.caption(f"血糖趋势：{trend}")
 
-        # 代谢综合征
-        met_syn = hg_result.get("metabolic_syndrome", [])
-        if met_syn:
-            st.markdown(f"**代谢综合征（{hg_result.get('met_syn_count', 0)}/5项）：**")
-            for item in met_syn:
-                st.markdown(f"- {item}")
+            risk_factors = hg_result.get("risk_factors", [])
+            if risk_factors:
+                st.markdown(f"**危险因素（{len(risk_factors)}项）：**")
+                for rf in risk_factors:
+                    st.markdown(f"- {rf}")
+
+            met_syn = hg_result.get("metabolic_syndrome", [])
+            if met_syn:
+                st.markdown(f"**代谢综合征（{hg_result.get('met_syn_count', 0)}/5项）：**")
+                for item in met_syn:
+                    st.markdown(f"- {item}")
 
     # ── Tab5：趋势预测 ───────────────────────────────────────────────
     with tab5:
@@ -326,3 +329,5 @@ def render():
                     st.error(r["msg"])
                 else:
                     st.warning(r["msg"])
+
+    disclaimer.render()

@@ -17,8 +17,8 @@ log = logging.getLogger(__name__)
 
 _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
-DATA_DIR = BASE_DIR / "activity-data"
-REPORTS_DIR = DATA_DIR / "reports"
+DATA_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
+REPORTS_DIR = BASE_DIR / "data" / "daily-reports"
 
 
 def extract(pattern: str, text: str, default: str = "") -> str:
@@ -44,8 +44,6 @@ def send_report(day_str: str) -> int:
 
     # 优先读取 Phase 4 高级日报（含 LLM 建议和多模型评估）
     advanced_path = REPORTS_DIR / f"{day_str}-advanced-daily-report.md"
-    if not advanced_path.exists():
-        advanced_path = DATA_DIR / f"{day_str}-advanced-daily-report.md"  # 兼容旧路径
     if advanced_path.exists():
         return send_advanced_report(advanced_path, day_str, CHANNEL, TARGET, ACCOUNT_ID)
 

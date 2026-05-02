@@ -7,6 +7,7 @@ from datetime import date, timedelta
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import chart_bp, chart_hrv_bb, chart_weight_fat
 from superhealth.dashboard.data_loader import (
     get_latest_ai_summary,
@@ -236,3 +237,5 @@ def render():
                 st.error(f"缺少依赖：{e}\n请运行 `pip install reportlab kaleido`")
             except Exception as e:
                 st.error(f"生成失败：{e}")
+
+    disclaimer.render()

@@ -57,7 +57,7 @@ def _normalize_activity_name(name: str) -> str:
 
 _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
-OUTPUT_DIR = BASE_DIR / "activity-data"
+OUTPUT_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
 SESSION_FILE = Path.home() / ".garmin_cn_session.json"
 _LEGACY_CONFIG_FILE = Path.home() / ".garmin_cn_config.json"  # 旧格式，向后兼容
 

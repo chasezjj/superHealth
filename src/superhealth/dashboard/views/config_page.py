@@ -14,6 +14,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.config import (
     AdvisorConfig,
     AppConfig,
@@ -790,3 +791,5 @@ def render() -> None:
 
         st.success("配置已保存并生效")
         st.rerun()
+
+    disclaimer.render()

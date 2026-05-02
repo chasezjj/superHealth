@@ -9,6 +9,7 @@ from superhealth.dashboard.components.charts import (
     chart_medical_timeline,
     chart_unified_lab_trend,
 )
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     load_annual_checkups,
     load_eye_exams,
@@ -195,6 +196,8 @@ def render():
 
         **提示：** 异常值会用红色圆圈标注，参考范围用绿色背景显示。
         """)
+
+    disclaimer.render()
 
 
 def _render_merged_view(years: int):

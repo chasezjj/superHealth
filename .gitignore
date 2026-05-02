@@ -1,14 +1,5 @@
 # 个人健康数据（绝不可入库）
-medical-records/
-checkup-reports/
-genetic-data/
-vitals/
-activity-data/**/*.md
-activity-data/**/*.json
-activity-data/archive/*
-!activity-data/.gitkeep
-!activity-data/reports/.gitkeep
-!activity-data/archive/.gitkeep
+data/
 *.db
 *.db-shm
 *.db-wal
@@ -43,7 +34,6 @@ htmlcov/
 
 # 日志与临时文件
 *.log
-data/
 versions.txt
 node_modules/
 .DS_Store

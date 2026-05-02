@@ -10,8 +10,8 @@ services:
       - ./health.db:/app/health.db
       # 配置文件
       - ~/.superhealth:/home/superhealth/.superhealth:ro
-      # 活动数据目录
-      - ./activity-data:/app/activity-data
+      # 数据目录（garmin/vitals/reports/genetic-data/medical-records 等）
+      - ./data:/app/data
     environment:
       - PYTHONPATH=src
       - TZ=Asia/Shanghai
@@ -32,7 +32,7 @@ services:
   #   volumes:
   #     - ./health.db:/app/health.db
   #     - ~/.superhealth:/home/superhealth/.superhealth:ro
-  #     - ./activity-data:/app/activity-data
+  #     - ./data:/app/data
   #   environment:
   #     - PYTHONPATH=src
   #     - TZ=Asia/Shanghai

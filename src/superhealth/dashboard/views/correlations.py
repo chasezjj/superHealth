@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import chart_heatmap, chart_scatter
 from superhealth.dashboard.data_loader import load_merged_for_correlation
 
@@ -64,3 +65,5 @@ def render():
         st.plotly_chart(chart_scatter(df, x_col, y_col), width="stretch")
     else:
         st.info("请选择不同的 X / Y 轴指标。")
+
+    disclaimer.render()

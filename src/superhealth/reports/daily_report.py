@@ -27,7 +27,7 @@ from superhealth.core.health_profile_builder import HealthProfile
 log = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "activity-data"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 
 @dataclass
@@ -568,7 +568,7 @@ def main():
     report = generator.generate_report(day_str)
 
     # 保存报告
-    output_path = DATA_DIR / "reports" / f"{day_str}-daily-report.md"
+    output_path = DATA_DIR / f"{day_str}-daily-report.md"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(report, encoding="utf-8")
     log.info("已生成日报: %s", output_path)

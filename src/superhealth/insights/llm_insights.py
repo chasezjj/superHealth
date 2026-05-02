@@ -23,7 +23,7 @@ from superhealth.config import load as load_config
 log = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "activity-data" / "reports"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 
 class LLMInsightsGenerator:

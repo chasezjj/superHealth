@@ -2,7 +2,7 @@
 
 数据源：
 - SQLite: medications, lab_results, eye_exams, annual_checkups, vitals, learned_preferences
-- Markdown: genetic-data/, medical-records/
+- Markdown: data/genetic-data/, data/medical-records/
 
 输出 HealthProfile，供 ModelSelector 和 LLMAdvisor 使用。
 """
@@ -24,8 +24,8 @@ log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).parent.parent.parent.parent  # healthy/
 DB_PATH = REPO_ROOT / "health.db"
-GENETIC_DIR = REPO_ROOT / "genetic-data"
-MEDICAL_DIR = REPO_ROOT / "medical-records"
+GENETIC_DIR = REPO_ROOT / "data" / "genetic-data"
+MEDICAL_DIR = REPO_ROOT / "data" / "medical-records"
 
 
 @dataclass
@@ -130,7 +130,7 @@ class HealthProfileBuilder:
             if path.exists():
                 profile.conditions.append(code)
                 profile.add_source(
-                    "长期管理", f"{label}（病历记录）", f"medical-records/{filename}"
+                    "长期管理", f"{label}（病历记录）", f"data/medical-records/{filename}"
                 )
 
         # 从体检报告检测历史血脂异常（通过 SQLite annual_checkups）
@@ -555,7 +555,7 @@ class HealthProfileBuilder:
             profile.add_source(
                 "基因特征",
                 f"肿瘤易感基因变异：{', '.join(found_genes)}（详见基因报告）",
-                "genetic-data/gene-testing-2024.md",
+                "data/genetic-data/gene-testing-2024.md",
             )
 
     def _load_learned_preferences(self, profile: HealthProfile):

@@ -36,7 +36,7 @@ from superhealth.reports.daily_report import DailyReportGenerator
 log = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
-DATA_DIR = Path(__file__).parent.parent.parent.parent / "activity-data"
+DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 
 class AdvancedDailyReportGenerator:
@@ -479,7 +479,7 @@ class AdvancedDailyReportGenerator:
 
         if save:
             suffix = "-test" if test_mode else ""
-            output_path = DATA_DIR / "reports" / f"{day_str}-advanced-daily-report{suffix}.md"
+            output_path = DATA_DIR / f"{day_str}-advanced-daily-report{suffix}.md"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(report_text, encoding="utf-8")
             log.info("已生成高级日报: %s", output_path)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import load_learned_preferences
 
 # 显示名 → 实际值映射
@@ -92,6 +93,8 @@ def render():
             with st.expander(f"{label}（{len(group)} 条）", expanded=True):
                 for _, row in group.iterrows():
                     _render_preference_card(row)
+
+    disclaimer.render()
 
 
 def _render_preference_card(row):

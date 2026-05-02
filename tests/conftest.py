@@ -4,4 +4,4 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-FIXTURE_DIR = Path(__file__).parent.parent / "activity-data"
+FIXTURE_DIR = Path(__file__).parent.parent / "data" / "activity-data" / "garmin"

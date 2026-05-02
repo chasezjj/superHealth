@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
-DATA_DIR = BASE_DIR / "activity-data"
+DATA_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
 
 
 # ─── 数据加载 ─────────────────────────────────────────────────────

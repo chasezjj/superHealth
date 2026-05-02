@@ -18,7 +18,9 @@
 
 ---
 
-![Dashboard](superHealth.png)
+![Dashboard](examples/indexPage.png)
+
+> 查看示例输出：[每日健康日报](examples/daily_report_example.md)
 
 ---
 
@@ -182,7 +184,7 @@ SuperHealth 的核心不是一个工具，而是一个**完整的自学习闭环
 
 ---
 
-## OpenClaw / Hermes 集成
+## OpenClaw 集成
 
 [OpenClaw](https://github.com/open-claw/openclaw) 是开源消息推送框架，SuperHealth 通过它将每日健康报告**自动推送到微信**，让你随时随地拥有一个健康助理。
 
@@ -331,7 +333,8 @@ superhealth/
 ├── tests/                    # pytest 测试
 ├── examples/                 # 示例配置与脱敏数据
 │   ├── config.example.toml
-│   └── sample_data.sql
+│   ├── sample_data.sql
+│   └── daily_report_example.md  # 每日健康日报示例输出
 ├── scripts/                  # cron 脚本
 ├── docs/                     # 项目文档
 ├── schema.sql                # 数据库 Schema（单一来源）

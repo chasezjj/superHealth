@@ -270,7 +270,7 @@ def get_latest_ai_summary(max_chars: int = 300) -> str:
 
 def get_latest_ai_report() -> tuple[str, str]:
     """从最新的 advanced-daily-report 文件中提取 (执行摘要, 完整报告内容)。"""
-    report_dir = DEFAULT_DB_PATH.parent / "activity-data" / "reports"
+    report_dir = DEFAULT_DB_PATH.parent / "data" / "daily-reports"
     if not report_dir.exists():
         return "（暂无 AI 建议报告）", ""
 
@@ -305,7 +305,7 @@ def get_latest_ai_report() -> tuple[str, str]:
 
 def get_latest_weekly_report() -> tuple[str, str]:
     """从最新的周报文件中提取 (摘要, 完整内容)。"""
-    report_dir = DEFAULT_DB_PATH.parent / "activity-data" / "reports"
+    report_dir = DEFAULT_DB_PATH.parent / "data" / "daily-reports"
     if not report_dir.exists():
         return "（暂无周报）", ""
 

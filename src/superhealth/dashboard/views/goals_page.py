@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 import plotly.graph_objects as go
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
+from superhealth.database import DEFAULT_DB_PATH as DB_PATH
 from superhealth.goals.manager import GoalManager
-
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
 
 def _get_conn():
@@ -87,6 +86,8 @@ def render():
 
     # ── 历史目标 ──
     _render_history(mgr)
+
+    disclaimer.render()
 
 
 def _render_goal_trend(mgr: "GoalManager", goal: dict):

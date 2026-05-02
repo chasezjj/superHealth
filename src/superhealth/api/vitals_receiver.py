@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 
 _PKG_DIR = Path(__file__).parent.parent
 DB_PATH = _PKG_DIR.parent.parent / "health.db"
-VITALS_DIR = _PKG_DIR.parent.parent / "vitals"
+VITALS_DIR = _PKG_DIR.parent.parent / "data" / "activity-data" / "vitals"
 BP_MD_PATH = VITALS_DIR / "blood-pressure.md"
 WEIGHT_MD_PATH = VITALS_DIR / "weight.md"
 

@@ -12,6 +12,7 @@ from superhealth.dashboard.components.charts import (
     chart_stress,
     chart_weight_fat,
 )
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import load_daily_health, load_exercises, load_vitals
 
 RANGE_OPTIONS = {
@@ -68,3 +69,5 @@ def render():
 
     # 图5：运动甘特图
     st.plotly_chart(chart_exercise_gantt(df_ex), width="stretch")
+
+    disclaimer.render()

@@ -1367,3 +1367,45 @@ def query_user_profiles(conn: sqlite3.Connection) -> dict:
     """查询全部用户档案，返回 {key: value} 字典。"""
     rows = conn.execute("SELECT key, value FROM user_profile").fetchall()
     return {row["key"]: row["value"] for row in rows}
+
+
+# ─── Garmin 数据管理 CRUD ─────────────────────────────────────────────
+
+
+def delete_daily_health(conn: sqlite3.Connection, date_str: str) -> None:
+    """删除某日的健康数据及其关联运动记录。"""
+    conn.execute("DELETE FROM exercises WHERE date = ?", (date_str,))
+    conn.execute("DELETE FROM daily_health WHERE date = ?", (date_str,))
+
+
+def delete_exercise(conn: sqlite3.Connection, exercise_id: int) -> None:
+    """删除单条运动记录。"""
+    conn.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
+
+
+def update_daily_health_fields(
+    conn: sqlite3.Connection, date_str: str, fields: dict
+) -> None:
+    """部分更新某日健康数据（仅更新 fields 中的列）。"""
+    if not fields:
+        return
+    set_clause = ", ".join(f"{col} = ?" for col in fields)
+    values = list(fields.values()) + [date_str]
+    conn.execute(
+        f"UPDATE daily_health SET {set_clause} WHERE date = ?",
+        values,
+    )
+
+
+def update_exercise(
+    conn: sqlite3.Connection, exercise_id: int, fields: dict
+) -> None:
+    """部分更新单条运动记录（仅更新 fields 中的列）。"""
+    if not fields:
+        return
+    set_clause = ", ".join(f"{col} = ?" for col in fields)
+    values = list(fields.values()) + [exercise_id]
+    conn.execute(
+        f"UPDATE exercises SET {set_clause} WHERE id = ?",
+        values,
+    )

@@ -13,6 +13,7 @@ from superhealth.dashboard.data_loader import (
     get_upcoming_appointments,
     load_daily_health,
 )
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.views.historical_review import _render_goal_progress
 
 
@@ -193,7 +194,7 @@ def render():
     if "report_just_generated" not in st.session_state:
         st.session_state.report_just_generated = False
 
-    report_dir = DEFAULT_DB_PATH.parent / "activity-data" / "reports"
+    report_dir = DEFAULT_DB_PATH.parent / "data" / "daily-reports"
     today_str = date.today().isoformat()
     today_report_file = report_dir / f"{today_str}-advanced-daily-report.md"
     has_today_report = today_report_file.exists()
@@ -248,3 +249,5 @@ def render():
         if full_report:
             with st.expander("查看完整 AI 建议报告"):
                 st.markdown(full_report)
+
+    disclaimer.render()

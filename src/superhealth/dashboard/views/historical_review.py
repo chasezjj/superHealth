@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     get_latest_weekly_report,
     load_feedback_by_range,
@@ -72,6 +73,8 @@ def render():
         st.caption(f"共 {len(df_feedback)} 条记录（{start_date} ~ {end_date}）")
         for _, row in df_feedback.iterrows():
             _render_feedback_card(row)
+
+    disclaimer.render()
 
 
 def _render_weekly_review():
