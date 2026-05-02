@@ -6,6 +6,7 @@ from datetime import date
 
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     DEFAULT_DB_PATH,
     get_latest_ai_report,
@@ -13,7 +14,6 @@ from superhealth.dashboard.data_loader import (
     get_upcoming_appointments,
     load_daily_health,
 )
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.views.historical_review import _render_goal_progress
 
 

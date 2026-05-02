@@ -14,7 +14,6 @@ from pathlib import Path
 
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.config import (
     AdvisorConfig,
     AppConfig,
@@ -30,6 +29,7 @@ from superhealth.config import (
     load,
     save_config,
 )
+from superhealth.dashboard.components import disclaimer
 
 
 def _derive_dashboard_password(new_pwd: str, stored: str) -> str:

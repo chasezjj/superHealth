@@ -5,11 +5,11 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import (
     chart_medical_timeline,
     chart_unified_lab_trend,
 )
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     load_annual_checkups,
     load_eye_exams,

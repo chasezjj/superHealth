@@ -7,6 +7,7 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
+from superhealth.dashboard.data_loader import load_daily_health, load_exercises
 from superhealth.database import (
     DEFAULT_DB_PATH,
     delete_daily_health,
@@ -15,7 +16,6 @@ from superhealth.database import (
     update_daily_health_fields,
     update_exercise,
 )
-from superhealth.dashboard.data_loader import load_daily_health, load_exercises
 
 # 用于展示的列名映射（数据库列 → 中文显示名）
 _DH_DISPLAY_COLS = {
