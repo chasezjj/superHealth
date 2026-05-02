@@ -195,6 +195,40 @@ class EffectTracker:
             result[key] = stdev(vals) if len(vals) > 1 else 1.0
         return result
 
+    def _compute_metric_percentiles(
+        self, conn, lookback_days: int = 180
+    ) -> dict[str, dict[str, float | None]]:
+        """计算个人近期历史指标分位值，用于动态判定 post 绝对水平。
+
+        返回 {metric: {"excellent": v, "poor": v}}。
+        对越低越好的指标（resting_hr, avg_stress）取相反方向分位。
+        """
+        since = (date.today() - timedelta(days=lookback_days)).isoformat()
+        rows = conn.execute(
+            """SELECT hrv_last_night_avg  AS hrv_avg,
+                       sleep_score,
+                       stress_average      AS avg_stress,
+                       hr_resting          AS resting_hr,
+                       bb_at_wake          AS body_battery_wake
+                FROM daily_health
+                WHERE date >= ?""",
+            (since,)
+        ).fetchall()
+        result: dict[str, dict[str, float | None]] = {}
+        for key in self.TRACKED_METRICS:
+            vals = sorted([r[key] for r in rows if r[key] is not None])
+            if not vals:
+                result[key] = {"excellent": None, "poor": None}
+                continue
+            n = len(vals)
+            p80 = vals[min(int(n * 0.8), n - 1)]
+            p20 = vals[max(int(n * 0.2), 0)]
+            if key in ("resting_hr", "avg_stress"):
+                result[key] = {"excellent": p20, "poor": p80}
+            else:
+                result[key] = {"excellent": p80, "poor": p20}
+        return result
+
     @staticmethod
     def _compute_schedule_stds(conn) -> dict[str, float]:
         """计算历史日程指标标准差，用于标准化配对距离。
@@ -620,6 +654,7 @@ class EffectTracker:
             schedule_stds = self._compute_schedule_stds(conn)
             all_stds = {**stds, **schedule_stds}
             personal_stds = self._compute_personal_stds(conn, lookback_days=180)
+            percentiles = self._compute_metric_percentiles(conn, lookback_days=180)
             controls = self._find_control_days(
                 exercise_date, pre_metrics, all_stds, cache=cache, top_n=3
             )
@@ -879,6 +914,46 @@ class EffectTracker:
                     details_by_day[day_key].append(
                         f"{day_key}: 各项指标变化均在正常范围内（{', '.join(parts)}），无显著信号"
                     )
+
+        # ── 高基线/绝对水平 override ──
+        # 当 post 指标已处于个人历史优秀区间时，net 变化的 negative 判定可能受天花板效应影响
+        # （对照组从低基线反弹空间大，高基线组提升空间有限），此时应参考绝对水平。
+        excellent_post_count = 0
+        poor_post_count = 0
+        for day_key, metrics in post_data.items():
+            if day_key in contaminated:
+                continue
+            for m in self.TRACKED_METRICS:
+                v = metrics.get(m)
+                thresh = percentiles.get(m, {})
+                exc = thresh.get("excellent")
+                poor = thresh.get("poor")
+                if v is None or exc is None or poor is None:
+                    continue
+                if m in ("resting_hr", "avg_stress"):
+                    if v <= exc:
+                        excellent_post_count += 1
+                    if v >= poor:
+                        poor_post_count += 1
+                else:
+                    if v >= exc:
+                        excellent_post_count += 1
+                    if v <= poor:
+                        poor_post_count += 1
+
+            hrv_status = str(metrics.get("hrv_status", "")).upper()
+            if hrv_status == "BALANCED":
+                excellent_post_count += 1
+            if hrv_status == "LOW":
+                poor_post_count += 1
+
+        if negative_signals > 0 and excellent_post_count >= 4 and poor_post_count == 0:
+            skipped_negative += negative_signals
+            first_day = sorted(post_data.keys())[0]
+            details_by_day[first_day].append(
+                f"override: {negative_signals} 个 negative 信号因 post 指标全面优秀被排除（高基线天花板效应）"
+            )
+            negative_signals = 0
 
         # 按天顺序合并，保证 day+1 在前、day+2 在后
         details = [d for dk in sorted(details_by_day.keys()) for d in details_by_day[dk]]
