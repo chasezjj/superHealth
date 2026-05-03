@@ -72,7 +72,6 @@ class TestGoalOperations:
         mgr = GoalManager(tmp_db)
         goal_id = mgr.add_goal(
             name="测试目标",
-            priority=1,
             metric_key="steps_mean_7d",
             direction="increase",
             baseline_value=8000,

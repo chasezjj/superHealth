@@ -13,7 +13,6 @@ class Goal(BaseModel):
     id: Optional[int] = None
     name: str
     description: Optional[str] = None
-    priority: int = Field(ge=1, le=3, description="1=主要, 2=次要, 3=辅助")
     status: str = "active"
     metric_key: str
     direction: str = Field(description="decrease/increase/stabilize")

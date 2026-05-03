@@ -38,7 +38,6 @@ class GoalManager:
         self,
         *,
         name: str,
-        priority: int = 2,
         metric_key: str,
         direction: str,
         target: Optional[float] = None,
@@ -55,8 +54,6 @@ class GoalManager:
             raise ValueError(f"不支持的指标 key: {metric_key}，可选: {sorted(VALID_METRIC_KEYS)}")
         if direction not in VALID_DIRECTIONS:
             raise ValueError(f"direction 必须是 {VALID_DIRECTIONS} 之一")
-        if priority not in (1, 2, 3):
-            raise ValueError("priority 必须是 1-3")
 
         today = date.today().isoformat()
 
@@ -74,14 +71,13 @@ class GoalManager:
             cursor = conn.execute(
                 """
                 INSERT INTO goals
-                    (name, description, priority, status, metric_key, direction,
+                    (name, description, status, metric_key, direction,
                      baseline_value, target_value, start_date, target_date)
-                VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
             """,
                 (
                     name,
                     description,
-                    priority,
                     metric_key,
                     direction,
                     baseline_value,

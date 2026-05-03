@@ -12,7 +12,7 @@
 
 ---
 
-> **真实验证** · P1 目标：降低舒张压
+> **真实验证** · 目标：降低舒张压
 >
 > 按照系统给出的运动建议，**一周内舒张压从 81.4 mmHg 降至 74.9 mmHg（↓ 7.9%）**
 
@@ -60,7 +60,7 @@ SuperHealth 的核心不是一个工具，而是一个**完整的自学习闭环
 
 ### ① 目标驱动，全链路个性化
 
-设置目标后，**整个系统围绕你的目标联动**：评估模型强制激活目标相关维度，LLM 提示词注入目标优先级，效果追踪对目标指标加权 1.5×，干预实验绑定目标设计。结果是每天的建议都在真正推进你的目标，而不是泛泛的"多喝水、早睡觉"。
+设置目标后，**整个系统围绕你的目标联动**：评估模型强制激活目标相关维度，LLM 提示词注入当前活跃目标，效果追踪对目标指标加权 1.5×，干预实验绑定目标设计。结果是每天的建议都在真正推进你的目标，而不是泛泛的"多喝水、早睡觉"。
 
 ### ② 越用越懂你，成为终生健康顾问
 
@@ -297,7 +297,7 @@ PYTHONPATH=src python -m superhealth.reports.advanced_daily_report --date 2025-0
 
 # 阶段性目标管理
 PYTHONPATH=src python -m superhealth.goals list
-PYTHONPATH=src python -m superhealth.goals add --name "降血压" --priority 1 \
+PYTHONPATH=src python -m superhealth.goals add --name "降血压" \
   --metric bp_systolic_mean_7d --direction decrease --target 120
 
 # 趋势分析与相关性
@@ -450,7 +450,7 @@ All health scores are anchored to your **personal 90-day rolling baseline**, not
 
 ### Real-World Validation
 
-> P1 Goal: Lower diastolic blood pressure.
+> Goal: Lower diastolic blood pressure.
 > Following the system's exercise recommendations, **diastolic BP dropped from 81.4 mmHg to 74.9 mmHg within one week (↓ 7.9%)**.
 
 ### Quick Start

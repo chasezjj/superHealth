@@ -1205,7 +1205,7 @@ class EffectTracker:
     def compute_goal_progress_norm(conn, ref_date: str) -> float | None:
         """计算指定日期的目标进度归一化值 (0-1)。
 
-        优先使用 P1 目标的 progress_pct，无 P1 则取所有活跃目标的均值。
+        使用最近创建的活跃目标 progress_pct；若当天无 goal_progress 数据，返回 None。
         若当天无 goal_progress 数据，返回 None。
         """
         rows = conn.execute(
@@ -1221,11 +1221,10 @@ class EffectTracker:
         if not rows:
             return None
 
-        # 优先使用 P1（最高优先级）目标
         pcts = [r["progress_pct"] for r in rows if r["progress_pct"] is not None]  # type: ignore[index]
         if not pcts:
             return None
 
-        # 取优先级最高的目标的 progress_pct，限制在 [0, 100] 再归一化
+        # 取最近创建的活跃目标 progress_pct，限制在 [0, 100] 再归一化
         raw: float = max(0.0, min(100.0, float(pcts[0])))
         return raw / 100.0

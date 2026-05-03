@@ -204,7 +204,6 @@ CREATE TABLE IF NOT EXISTS goals (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
     description       TEXT,
-    priority          INTEGER NOT NULL DEFAULT 2,
     status            TEXT NOT NULL DEFAULT 'active',
     metric_key        TEXT NOT NULL,
     direction         TEXT NOT NULL,
@@ -380,16 +379,14 @@ ALTER TABLE learned_preferences ADD COLUMN last_effective_at TEXT;
 
 -- goals：CLI/模型兼容字段
 ALTER TABLE goals ADD COLUMN description TEXT;
-ALTER TABLE goals ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
 ALTER TABLE goals ADD COLUMN target_date TEXT;
 
--- goals 表结构迁移：保留 CLI/模型依赖字段并补齐缺失列
+-- goals 表结构迁移：移除废弃字段并补齐缺失列
 DROP TABLE IF EXISTS goals_new;
 CREATE TABLE goals_new (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
     description       TEXT,
-    priority          INTEGER NOT NULL DEFAULT 2,
     status            TEXT NOT NULL DEFAULT 'active',
     metric_key        TEXT NOT NULL,
     direction         TEXT NOT NULL,
@@ -402,8 +399,8 @@ CREATE TABLE goals_new (
     created_at        TIMESTAMP DEFAULT (datetime('now','localtime')),
     updated_at        TIMESTAMP DEFAULT (datetime('now','localtime'))
 );
-INSERT INTO goals_new (id, name, description, priority, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
-SELECT id, name, description, priority, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
+INSERT INTO goals_new (id, name, description, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
+SELECT id, name, description, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
 DROP TABLE goals;
 ALTER TABLE goals_new RENAME TO goals;
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);

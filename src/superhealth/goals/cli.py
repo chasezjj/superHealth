@@ -2,7 +2,7 @@
 
 用法：
     python -m superhealth.goals list [--status active]
-    python -m superhealth.goals add --name "降低血压" --priority 1 --metric bp_systolic_mean_7d --direction decrease --target 120 [--target-date 2026-07-31] [--baseline 130]
+    python -m superhealth.goals add --name "降低血压" --metric bp_systolic_mean_7d --direction decrease --target 120 [--target-date 2026-07-31] [--baseline 130]
     python -m superhealth.goals progress <goal_id> [--days 30]
     python -m superhealth.goals achieve <goal_id> [--notes "..."]
     python -m superhealth.goals pause <goal_id>
@@ -34,7 +34,6 @@ def cmd_list(args):
         print("暂无目标。")
         return
 
-    _PRIORITY_LABEL = {1: "P1 主要", 2: "P2 次要", 3: "P3 辅助"}
     for g in goals:
         status_icon = {
             "active": "●",
@@ -43,9 +42,8 @@ def cmd_list(args):
             "abandoned": "✗",
             "off_track": "⚠",
         }.get(g["status"], "?")
-        priority_label = _PRIORITY_LABEL.get(g['priority'], f"P{g['priority']}")
         print(
-            f"\n{status_icon} [{g['id']}] {g['name']} ({priority_label})"
+            f"\n{status_icon} [{g['id']}] {g['name']}"
         )
         spec = METRIC_REGISTRY.get(g["metric_key"])
         print(f"  指标: {spec.label if spec else g['metric_key']}")
@@ -62,7 +60,6 @@ def cmd_add(args):
     try:
         goal_id = mgr.add_goal(
             name=args.name,
-            priority=args.priority,
             metric_key=args.metric,
             direction=args.direction,
             target=args.target,
@@ -268,7 +265,6 @@ def main():
     # add
     p_add = sub.add_parser("add", help="添加新目标")
     p_add.add_argument("--name", required=True, help="目标名称")
-    p_add.add_argument("--priority", type=int, required=True, choices=[1, 2, 3], help="优先级 1-3")
     p_add.add_argument("--metric", required=True, help="指标 key（用 metrics 命令查看可选值）")
     p_add.add_argument("--direction", required=True, choices=["decrease", "increase", "stabilize"])
     p_add.add_argument("--target", type=float, help="目标值")

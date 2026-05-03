@@ -17,13 +17,10 @@ def tmp_db(tmp_path):
 
 
 class TestGoalModel:
-    def test_priority_validation(self):
-        g = Goal(name="test", priority=1, metric_key="steps_mean_7d", direction="increase", start_date="2025-01-01")
-        assert g.priority == 1
-
-    def test_invalid_priority(self):
-        with pytest.raises(ValueError):
-            Goal(name="test", priority=5, metric_key="steps_mean_7d", direction="increase", start_date="2025-01-01")
+    def test_basic_goal_fields(self):
+        g = Goal(name="test", metric_key="steps_mean_7d", direction="increase", start_date="2025-01-01")
+        assert g.name == "test"
+        assert g.metric_key == "steps_mean_7d"
 
 
 class TestGoalMetricRegistryComputeProgress:
@@ -80,7 +77,7 @@ class TestGoalManagerAddGoal:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
         goal_id = mgr.add_goal(
-            name="降压目标", priority=1, metric_key="bp_systolic_mean_7d",
+            name="降压目标", metric_key="bp_systolic_mean_7d",
             direction="decrease", baseline_value=130, target=120,
         )
         assert goal_id is not None
@@ -88,17 +85,12 @@ class TestGoalManagerAddGoal:
     def test_add_goal_invalid_metric(self, tmp_db):
         mgr = GoalManager(tmp_db)
         with pytest.raises(ValueError, match="不支持的指标 key"):
-            mgr.add_goal(name="test", priority=1, metric_key="invalid_key", direction="decrease")
+            mgr.add_goal(name="test", metric_key="invalid_key", direction="decrease")
 
     def test_add_goal_invalid_direction(self, tmp_db):
         mgr = GoalManager(tmp_db)
         with pytest.raises(ValueError, match="direction 必须是"):
-            mgr.add_goal(name="test", priority=1, metric_key="steps_mean_7d", direction="up")
-
-    def test_add_goal_invalid_priority(self, tmp_db):
-        mgr = GoalManager(tmp_db)
-        with pytest.raises(ValueError, match="priority 必须是 1-3"):
-            mgr.add_goal(name="test", priority=5, metric_key="steps_mean_7d", direction="increase")
+            mgr.add_goal(name="test", metric_key="steps_mean_7d", direction="up")
 
 
 class TestGoalManagerLifecycle:
@@ -107,7 +99,7 @@ class TestGoalManagerLifecycle:
         with db.get_conn(tmp_db) as conn:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
-        mgr.add_goal(name="目标A", priority=1, metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
+        mgr.add_goal(name="目标A", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
         goals = mgr.list_goals()
         assert len(goals) == 1
         assert goals[0]["name"] == "目标A"
@@ -117,7 +109,7 @@ class TestGoalManagerLifecycle:
         with db.get_conn(tmp_db) as conn:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
-        gid = mgr.add_goal(name="目标B", priority=1, metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
+        gid = mgr.add_goal(name="目标B", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
         g = mgr.get_goal(gid)
         assert g["name"] == "目标B"
 
@@ -126,7 +118,7 @@ class TestGoalManagerLifecycle:
         with db.get_conn(tmp_db) as conn:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
-        gid = mgr.add_goal(name="目标C", priority=1, metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
+        gid = mgr.add_goal(name="目标C", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
         mgr.update_status(gid, "achieved")
         g = mgr.get_goal(gid)
         assert g["status"] == "achieved"
@@ -142,7 +134,7 @@ class TestGoalManagerLifecycle:
         with db.get_conn(tmp_db) as conn:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
-        mgr.add_goal(name="活跃目标", priority=1, metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
+        mgr.add_goal(name="活跃目标", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130)
         active = mgr.get_active_goals()
         assert len(active) == 1
 
@@ -153,7 +145,7 @@ class TestGoalManagerTrackProgress:
         with db.get_conn(tmp_db) as conn:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
-        gid = mgr.add_goal(name="降压", priority=1, metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130, target=110)
+        gid = mgr.add_goal(name="降压", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130, target=110)
         mgr.track_daily_progress("2025-04-03")
         progress = mgr.get_goal_progress(gid)
         assert len(progress) == 1

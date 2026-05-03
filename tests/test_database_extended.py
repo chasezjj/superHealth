@@ -237,8 +237,8 @@ class TestGoalProgress:
     def test_insert_and_query(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
             conn.execute(
-                "INSERT INTO goals (name, priority, metric_key, direction, baseline_value, start_date) VALUES (?, ?, ?, ?, ?, ?)",
-                ("测试目标", 1, "steps", "increase", 8000, "2025-01-01"),
+                "INSERT INTO goals (name, metric_key, direction, baseline_value, start_date) VALUES (?, ?, ?, ?, ?)",
+                ("测试目标", "steps", "increase", 8000, "2025-01-01"),
             )
             goal_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             db.insert_goal_progress(
