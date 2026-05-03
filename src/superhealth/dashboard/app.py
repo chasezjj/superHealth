@@ -61,22 +61,27 @@ if not _login_gate():
     st.stop()
 
 
+from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.views import (
     config_page,
     correlations,
     experiment_page,
-    export,
     garmin_data,
+    goals_page,
+    health_record_page,
     historical_review,
     lab_results,
     overview,
     prediction,
     preferences_page,
+    profile_page,
     trends,
+    upload,
 )
 
 PAGES = {
     "今日概览": overview,
+    "阶段目标": goals_page,
     "历史回顾": historical_review,
     "个人偏好": preferences_page,
     "实验追踪": experiment_page,
@@ -85,7 +90,9 @@ PAGES = {
     "化验趋势": lab_results,
     "相关性分析": correlations,
     "预测分析": prediction,
-    "报告导出": export,
+    "上传文档": upload,
+    "健康档案": health_record_page,
+    "个人档案": profile_page,
     "系统配置": config_page,
 }
 
@@ -107,3 +114,4 @@ with st.sidebar:
             st.rerun()
 
 PAGES[page_name].render()
+disclaimer.render()

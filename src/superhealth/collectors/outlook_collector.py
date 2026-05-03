@@ -339,7 +339,7 @@ def fetch_calendar(date_str: str, db_path: Path = DEFAULT_DB_PATH) -> Optional[C
     # 2. 从 Exchange 拉取（未来日期总是重新拉；历史日期无缓存时也拉）
     cfg = load_config().outlook
     if not cfg.is_complete():
-        log.info("Outlook 配置不完整，跳过日历采集")
+        log.debug("Outlook 配置不完整，跳过日历采集")
         return None
 
     try:

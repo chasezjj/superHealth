@@ -1,8 +1,9 @@
 """健康画像构建器：自动从多源数据发现用户健康画像。
 
 数据源：
-- SQLite: medications, lab_results, eye_exams, annual_checkups, vitals, learned_preferences
-- Markdown: data/genetic-data/, data/medical-records/
+- SQLite: medical_conditions, medical_observations, medical_documents,
+          medications, vitals, daily_health, learned_preferences, user_profile
+- Markdown: data/genetic-data/
 
 输出 HealthProfile，供 ModelSelector 和 LLMAdvisor 使用。
 """
@@ -120,51 +121,79 @@ class HealthProfileBuilder:
         return profile
 
     def _load_medical_records(self, profile: HealthProfile):
-        """从 markdown 病历文件解析已确诊疾病。"""
-        med_files = {
-            "hyperuricemia-history.md": ("hyperuricemia", "高尿酸血症"),
-            "glaucoma-history.md": ("glaucoma", "青光眼"),
+        """从 medical_conditions 表加载已确诊疾病；从 medical_observations 补充历史状况。"""
+        # ── 1. 从 medical_conditions 读取所有病情 ──────────────────
+        condition_map = {
+            "高尿酸血症": "hyperuricemia",
+            "痛风": "hyperuricemia",
+            "青光眼": "glaucoma",
+            "原发性开角型青光眼": "glaucoma",
+            "高血压": "hypertension",
+            "高血脂": "dyslipidemia",
+            "血脂异常": "dyslipidemia",
+            "2型糖尿病": "type2_diabetes",
+            "糖尿病": "type2_diabetes",
         }
-        for filename, (code, label) in med_files.items():
-            path = MEDICAL_DIR / filename
-            if path.exists():
-                profile.conditions.append(code)
-                profile.add_source(
-                    "长期管理", f"{label}（病历记录）", f"data/medical-records/{filename}"
-                )
-
-        # 从体检报告检测历史血脂异常（通过 SQLite annual_checkups）
         try:
             with self._get_conn() as conn:
                 rows = conn.execute(
-                    """SELECT checkup_date, total_cholesterol, ldl_c, triglyceride
-                       FROM annual_checkups
-                       WHERE total_cholesterol > 5.2 OR ldl_c > 3.4 OR triglyceride > 1.7
-                       ORDER BY checkup_date"""
+                    "SELECT name, status FROM medical_conditions"
                 ).fetchall()
-                if rows:
+                for row in rows:
+                    name, status = row["name"], row["status"]
+                    code = None
+                    for keyword, mapped in condition_map.items():
+                        if keyword in name:
+                            code = mapped
+                            break
+                    if code is None:
+                        code = name  # 未知病种直接用名称
+                    if status == "active":
+                        if code not in profile.conditions:
+                            profile.conditions.append(code)
+                        profile.add_source("长期管理", f"{name}（active）", "medical_conditions")
+                    elif status in ("resolved", "suspected"):
+                        if code not in profile.history_conditions:
+                            profile.history_conditions.append(code)
+        except Exception as e:
+            log.debug("医疗病情查询失败: %s", e)
+
+        # ── 2. 从 medical_observations 检测历史血脂异常 ──────────────
+        try:
+            with self._get_conn() as conn:
+                rows = conn.execute(
+                    """SELECT obs_date
+                       FROM medical_observations
+                       WHERE item_name IN ('总胆固醇','TC','低密度脂蛋白胆固醇','LDL-C','甘油三酯','TG')
+                         AND is_abnormal = 1
+                       ORDER BY obs_date"""
+                ).fetchall()
+                if rows and "dyslipidemia" not in profile.conditions:
                     profile.history_conditions.append("dyslipidemia_history")
-                    dates = [r["checkup_date"] for r in rows]
                     profile.add_source(
-                        "历史状况", f"血脂异常（{dates[0]}–{dates[-1]}，曾干预）", "annual_checkups"
+                        "历史状况",
+                        f"血脂异常（{rows[0]['obs_date']}，曾检出）",
+                        "medical_observations",
                     )
         except Exception as e:
             log.debug("血脂历史查询失败: %s", e)
 
-        # 从肾超声检测肾结石历史
+        # ── 3. 从 medical_observations 检测肾结石历史 ──────────────
         try:
             with self._get_conn() as conn:
                 rows = conn.execute(
-                    """SELECT date, conclusion FROM kidney_ultrasounds
-                       WHERE conclusion LIKE '%结石%' OR right_finding LIKE '%结石%'
-                            OR left_finding LIKE '%结石%'
-                       ORDER BY date"""
+                    """SELECT obs_date FROM medical_observations
+                       WHERE category = 'ultrasound' AND body_site = 'kidney'
+                         AND (value_text LIKE '%结石%')
+                       ORDER BY obs_date"""
                 ).fetchall()
                 if rows:
                     if "kidney_stone_history" not in profile.history_conditions:
                         profile.history_conditions.append("kidney_stone_history")
                     profile.add_source(
-                        "历史状况", f"肾结石（{rows[0]['date']}起，需随访）", "kidney_ultrasounds"
+                        "历史状况",
+                        f"肾结石（{rows[0]['obs_date']}起，需随访）",
+                        "medical_observations",
                     )
         except Exception as e:
             log.debug("肾结石历史查询失败: %s", e)
@@ -190,36 +219,43 @@ class HealthProfileBuilder:
             log.debug("用药查询失败: %s", e)
 
     def _load_lab_trends(self, profile: HealthProfile, reference_date: str):
-        """从 lab_results 检测近期化验指标趋势。"""
+        """从 medical_observations 检测近期化验指标趋势。"""
         try:
             with self._get_conn() as conn:
                 # 最近两次尿酸
                 rows = conn.execute(
-                    """SELECT date, value FROM lab_results
-                       WHERE item_name LIKE '%尿酸%'
-                       ORDER BY date DESC LIMIT 2"""
+                    """SELECT obs_date, value_num FROM medical_observations
+                       WHERE item_name LIKE '%尿酸%' AND value_num IS NOT NULL
+                       ORDER BY obs_date DESC LIMIT 2"""
                 ).fetchall()
                 if rows:
                     latest = rows[0]
-                    ua_val = latest["value"]
+                    ua_val = latest["value_num"]
                     ua_status = "正常" if ua_val and ua_val <= 420 else "偏高"
                     profile.trends["uric_acid"] = ua_status
                     profile.add_source(
                         "当前关注",
-                        f"尿酸 {ua_val} μmol/L（{latest['date']}，{ua_status}）",
-                        "lab_results",
+                        f"尿酸 {ua_val} μmol/L（{latest['obs_date']}，{ua_status}）",
+                        "medical_observations",
                     )
 
-                # 最近血脂全项
-                for item_code, trend_key in [("LDL-C", "ldl"), ("TG", "tg"), ("HDL-C", "hdl")]:
+                # 最近血脂全项（按 item_code 或 item_name 匹配）
+                for names, trend_key in [
+                    (["LDL-C", "低密度脂蛋白胆固醇"], "ldl"),
+                    (["TG", "甘油三酯"], "tg"),
+                    (["HDL-C", "高密度脂蛋白胆固醇"], "hdl"),
+                ]:
+                    placeholders = ",".join("?" * len(names))
                     row = conn.execute(
-                        """SELECT date, value FROM lab_results
-                           WHERE item_code = ? ORDER BY date DESC LIMIT 1""",
-                        (item_code,),
+                        f"""SELECT obs_date, value_num FROM medical_observations
+                            WHERE (item_name IN ({placeholders}) OR item_code IN ({placeholders}))
+                              AND value_num IS NOT NULL
+                            ORDER BY obs_date DESC LIMIT 1""",
+                        names + names,
                     ).fetchone()
-                    if row and row["value"] is not None:
-                        profile.trends[f"{trend_key}_latest"] = row["value"]
-                        profile.trends[f"{trend_key}_date"] = row["date"]
+                    if row:
+                        profile.trends[f"{trend_key}_latest"] = row["value_num"]
+                        profile.trends[f"{trend_key}_date"] = row["obs_date"]
 
                 ldl_latest = profile.trends.get("ldl_latest")
                 ldl_date = profile.trends.get("ldl_date", "")
@@ -228,13 +264,13 @@ class HealthProfileBuilder:
                     profile.add_source(
                         "当前关注",
                         f"LDL {ldl_latest:.2f} mmol/L（偏高，{ldl_date}）",
-                        "lab_results",
+                        "medical_observations",
                     )
                 elif ldl_latest:
                     profile.add_source(
                         "当前关注",
                         f"LDL {ldl_latest:.2f} mmol/L（{ldl_date}，正常范围）",
-                        "lab_results",
+                        "medical_observations",
                     )
         except Exception as e:
             log.debug("化验趋势查询失败: %s", e)
@@ -416,29 +452,51 @@ class HealthProfileBuilder:
             log.debug("daily_health 聚合查询失败: %s", e)
 
     def _load_eye_exam_trends(self, profile: HealthProfile, reference_date: str):
-        """加载最近一次眼科复查结果，供青光眼模型使用。"""
+        """从 medical_observations 加载最近一次眼科检查结果，供青光眼模型使用。"""
         try:
             with self._get_conn() as conn:
-                row = conn.execute(
-                    """SELECT date, od_iop, os_iop, od_cd_ratio, os_cd_ratio,
-                              fundus_note, note
-                       FROM eye_exams
-                       WHERE date <= ? AND (od_iop IS NOT NULL OR os_iop IS NOT NULL)
-                       ORDER BY date DESC LIMIT 1""",
+                rows = conn.execute(
+                    """SELECT obs_date, item_name, laterality, value_num, value_text
+                       FROM medical_observations
+                       WHERE category = 'eye' AND obs_date <= ?
+                       ORDER BY obs_date DESC LIMIT 20""",
                     (reference_date,),
-                ).fetchone()
-            if row:
-                if row["od_iop"] is not None:
-                    profile.trends["eye_od_iop"] = row["od_iop"]
-                if row["os_iop"] is not None:
-                    profile.trends["eye_os_iop"] = row["os_iop"]
-                if row["od_cd_ratio"] is not None:
-                    profile.trends["eye_od_cdr"] = row["od_cd_ratio"]
-                if row["os_cd_ratio"] is not None:
-                    profile.trends["eye_os_cdr"] = row["os_cd_ratio"]
-                profile.trends["eye_exam_date"] = row["date"]
-                profile.trends["eye_fundus_note"] = row["fundus_note"] or ""
-                profile.trends["eye_note"] = row["note"] or ""
+                ).fetchall()
+            if not rows:
+                return
+
+            # 取最近一次检查日期
+            latest_date = rows[0]["obs_date"]
+            profile.trends["eye_exam_date"] = latest_date
+
+            iop_map = {
+                ("right",): "eye_od_iop",
+                ("left",): "eye_os_iop",
+            }
+            cdr_map = {
+                ("right",): "eye_od_cdr",
+                ("left",): "eye_os_cdr",
+            }
+            for row in rows:
+                if row["obs_date"] != latest_date:
+                    break
+                name = row["item_name"] or ""
+                lat = (row["laterality"] or "").lower()
+                val = row["value_num"]
+                text = row["value_text"] or ""
+
+                if "眼压" in name or "IOP" in name.upper():
+                    for keys, trend_key in iop_map.items():
+                        if lat in keys and val is not None:
+                            profile.trends[trend_key] = val
+                elif "杯盘" in name or "C/D" in name.upper() or "CDR" in name.upper():
+                    for keys, trend_key in cdr_map.items():
+                        if lat in keys and val is not None:
+                            profile.trends[trend_key] = val
+                elif "眼底" in name or "fundus" in name.lower():
+                    profile.trends["eye_fundus_note"] = text
+                elif "视野" in name or "诊断" in name:
+                    profile.trends["eye_note"] = text
         except Exception as e:
             log.debug("眼科复查数据加载失败: %s", e)
 
@@ -462,14 +520,22 @@ class HealthProfileBuilder:
                     bc.weight_kg = rows[0]["weight_kg"]
                     bc.body_fat_pct = rows[0]["body_fat_pct"]
 
-                # 身高（从最近体检获取）
-                height_row = conn.execute(
-                    """SELECT height_cm FROM annual_checkups
-                       WHERE height_cm IS NOT NULL
-                       ORDER BY checkup_date DESC LIMIT 1"""
-                ).fetchone()
-                if height_row:
-                    profile.height_cm = height_row["height_cm"]
+                # 身高：优先 data/profile/profile.md，其次 medical_observations
+                from superhealth.user_profile import read_profile as _read_profile
+                height_str = _read_profile().get("height_cm")
+                if height_str:
+                    try:
+                        profile.height_cm = float(height_str)
+                    except ValueError:
+                        pass
+                if profile.height_cm is None:
+                    height_row = conn.execute(
+                        """SELECT value_num FROM medical_observations
+                           WHERE item_name LIKE '%身高%' AND value_num IS NOT NULL
+                           ORDER BY obs_date DESC LIMIT 1"""
+                    ).fetchone()
+                    if height_row:
+                        profile.height_cm = height_row["value_num"]
 
         except Exception as e:
             log.debug("体成分查询失败: %s", e)
@@ -720,7 +786,7 @@ class HealthProfileBuilder:
                            SELECT MAX(date) FROM goal_progress WHERE goal_id = g.id
                        )
                        WHERE g.status = 'active'
-                       ORDER BY g.priority"""
+                       ORDER BY g.start_date DESC"""
                 ).fetchall()
                 for row in rows:
                     goal_dict = dict(row)

@@ -68,7 +68,6 @@ class TrendAnalyzer:
 
     def __init__(self, db_path: Path = DB_PATH):
         self.db_path = db_path
-        db.init_db(db_path)
 
     def _get_conn(self):
         return db.get_conn(self.db_path)

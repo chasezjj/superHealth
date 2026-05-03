@@ -9,6 +9,13 @@
 --   - 新增列：在文件末尾 [Column Migrations] 区加 ALTER TABLE ... ADD COLUMN IF NOT EXISTS
 --   - 不删列、不改列类型（SQLite 限制），需要时建新表迁移
 
+-- ─── Drop legacy disease-specific tables ─────────────────────────────
+-- Replaced by medical_observations (generic) + medical_documents + medical_conditions
+DROP TABLE IF EXISTS eye_exams;
+DROP TABLE IF EXISTS kidney_ultrasounds;
+DROP TABLE IF EXISTS annual_checkups;
+DROP TABLE IF EXISTS lab_results;
+
 -- ─── Tables ───────────────────────────────────────────────────────────
 
 -- Garmin 每日健康数据
@@ -81,23 +88,6 @@ CREATE TABLE IF NOT EXISTS exercises (
 );
 CREATE INDEX IF NOT EXISTS idx_exercises_date ON exercises(date);
 
--- 化验结果
-CREATE TABLE IF NOT EXISTS lab_results (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    date        TEXT NOT NULL,
-    source      TEXT,
-    item_name   TEXT NOT NULL,
-    item_code   TEXT,
-    value       REAL,
-    unit        TEXT,
-    ref_low     REAL,
-    ref_high    REAL,
-    is_abnormal INTEGER DEFAULT 0,
-    note        TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_lab_date ON lab_results(date);
-CREATE INDEX IF NOT EXISTS idx_lab_item ON lab_results(item_name);
-
 -- 血压/体重/体脂率（Health Auto Export 自动推送）
 CREATE TABLE IF NOT EXISTS vitals (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,8 +117,7 @@ CREATE TABLE IF NOT EXISTS medications (
 CREATE TABLE IF NOT EXISTS medication_effects (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     medication_id   INTEGER NOT NULL,
-    lab_result_id   INTEGER,
-    eye_exam_id     INTEGER,
+    observation_id  INTEGER,
     checkup_date    TEXT,
     expected_effect TEXT,
     actual_effect   TEXT,
@@ -136,95 +125,10 @@ CREATE TABLE IF NOT EXISTS medication_effects (
     recorded_at     TEXT DEFAULT (datetime('now','localtime')),
     note            TEXT,
     FOREIGN KEY (medication_id) REFERENCES medications(id) ON DELETE CASCADE,
-    FOREIGN KEY (lab_result_id) REFERENCES lab_results(id) ON DELETE SET NULL,
-    FOREIGN KEY (eye_exam_id) REFERENCES eye_exams(id) ON DELETE SET NULL
+    FOREIGN KEY (observation_id) REFERENCES medical_observations(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_med_effects_med_id ON medication_effects(medication_id);
-CREATE INDEX IF NOT EXISTS idx_med_effects_lab_id ON medication_effects(lab_result_id);
-
--- 眼科检查
-CREATE TABLE IF NOT EXISTS eye_exams (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    date         TEXT NOT NULL,
-    doctor       TEXT,
-    hospital     TEXT,
-    od_vision    TEXT,
-    od_iop       REAL,
-    od_cd_ratio  REAL,
-    os_vision    TEXT,
-    os_iop       REAL,
-    os_cd_ratio  REAL,
-    fundus_note  TEXT,
-    prescription TEXT,
-    note         TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_eye_date ON eye_exams(date);
-
--- 肾脏彩超
-CREATE TABLE IF NOT EXISTS kidney_ultrasounds (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    date            TEXT NOT NULL,
-    right_length_cm REAL,
-    right_finding   TEXT,
-    left_length_cm  REAL,
-    left_finding    TEXT,
-    right_ureter    TEXT,
-    left_ureter     TEXT,
-    prostate        TEXT,
-    conclusion      TEXT,
-    doctor          TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_kidney_date ON kidney_ultrasounds(date);
-
--- 年度体检报告
-CREATE TABLE IF NOT EXISTS annual_checkups (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    checkup_date     TEXT NOT NULL UNIQUE,
-    institution      TEXT,
-    height_cm        REAL,
-    weight_kg        REAL,
-    bmi              REAL,
-    systolic         INTEGER,
-    diastolic        INTEGER,
-    heart_rate       INTEGER,
-    uric_acid        INTEGER,
-    creatinine       INTEGER,
-    urea             REAL,
-    cystatin_c       REAL,
-    total_cholesterol REAL,
-    triglyceride     REAL,
-    ldl_c            REAL,
-    hdl_c            REAL,
-    fasting_glucose  REAL,
-    hba1c            REAL,
-    alt              REAL,
-    ast              REAL,
-    ggt              REAL,
-    wbc              REAL,
-    rbc              REAL,
-    hgb              INTEGER,
-    hct              REAL,
-    plt              INTEGER,
-    t3               REAL,
-    t4               REAL,
-    tsh              REAL,
-    afp              REAL,
-    cea              REAL,
-    t_psa            REAL,
-    nse              REAL,
-    cyfra211         REAL,
-    vision_right     REAL,
-    vision_left      REAL,
-    iop_right        INTEGER,
-    iop_left         INTEGER,
-    cup_disc_ratio   TEXT,
-    thyroid_note     TEXT,
-    lung_note        TEXT,
-    ultrasound_note  TEXT,
-    abnormal_summary TEXT,
-    raw_text         TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_checkup_date ON annual_checkups(checkup_date);
+CREATE INDEX IF NOT EXISTS idx_med_effects_obs_id ON medication_effects(observation_id);
 
 -- 天气记录
 CREATE TABLE IF NOT EXISTS weather (
@@ -299,8 +203,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_unique ON appointments(condit
 CREATE TABLE IF NOT EXISTS goals (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
-    description        TEXT,
-    priority          INTEGER NOT NULL,
+    description       TEXT,
+    priority          INTEGER NOT NULL DEFAULT 2,
     status            TEXT NOT NULL DEFAULT 'active',
     metric_key        TEXT NOT NULL,
     direction         TEXT NOT NULL,
@@ -314,14 +218,6 @@ CREATE TABLE IF NOT EXISTS goals (
     updated_at        TIMESTAMP DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
-CREATE INDEX IF NOT EXISTS idx_goals_priority ON goals(priority);
-
--- 用户档案（key-value，存储身高/性别/出生日期等）
-CREATE TABLE IF NOT EXISTS user_profile (
-    key        TEXT PRIMARY KEY,
-    value      TEXT NOT NULL,
-    updated_at TEXT DEFAULT (datetime('now','localtime'))
-);
 
 -- 每日目标进度快照
 CREATE TABLE IF NOT EXISTS goal_progress (
@@ -387,12 +283,74 @@ CREATE TABLE IF NOT EXISTS daily_health_audit (
 CREATE INDEX IF NOT EXISTS idx_audit_date ON daily_health_audit(date);
 CREATE INDEX IF NOT EXISTS idx_audit_field ON daily_health_audit(field_name);
 
+-- 通用医疗文档（基因/年度体检/门诊/影像/化验单/出院小结等多模态上传产物）
+CREATE TABLE IF NOT EXISTS medical_documents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_date        TEXT NOT NULL,                  -- 报告/检查日期 YYYY-MM-DD
+    doc_type        TEXT NOT NULL,                  -- 'genetic' | 'annual_checkup' | 'outpatient' | 'imaging' | 'lab' | 'discharge' | 'other'
+    institution     TEXT,                           -- 医院/检测机构
+    department      TEXT,                           -- 科室
+    doctor          TEXT,
+    title           TEXT,                           -- 用户可读标题
+    original_path   TEXT,                           -- 原始 PDF/图片相对路径（保留可追溯）
+    markdown_path   TEXT NOT NULL,                  -- 落盘 .md 路径（系统主消费源）
+    extracted_json  TEXT,                           -- LLM 提取的完整 JSON
+    confirmed_at    TIMESTAMP,                      -- 用户确认时间
+    note            TEXT,
+    created_at      TIMESTAMP DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_medical_documents_date ON medical_documents(doc_date);
+CREATE INDEX IF NOT EXISTS idx_medical_documents_type ON medical_documents(doc_type);
+
+-- 通用医学观测/指标表（取代 eye_exams、kidney_ultrasounds、annual_checkups 各列）
+-- 一行 = 一个项目（化验项 / 眼压 / 肾长径 / 心电图结论 ...）
+CREATE TABLE IF NOT EXISTS medical_observations (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id   INTEGER REFERENCES medical_documents(id) ON DELETE CASCADE,
+    obs_date      TEXT NOT NULL,                    -- YYYY-MM-DD
+    category      TEXT NOT NULL,                    -- 'lab' | 'vital' | 'imaging' | 'eye' | 'ultrasound' | 'ecg' | 'genetic' | 'other'
+    item_name     TEXT NOT NULL,                    -- 中文/原文名称
+    item_code     TEXT,                             -- LOINC / 内部 code（可选）
+    body_site     TEXT,                             -- 'eye' | 'kidney' | 'thyroid' | 'liver' | ...
+    laterality    TEXT,                             -- 'left' | 'right' | 'bilateral'
+    value_num     REAL,
+    value_text    TEXT,                             -- 文字结论
+    unit          TEXT,
+    ref_low       REAL,
+    ref_high      REAL,
+    is_abnormal   INTEGER DEFAULT 0,
+    note          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_obs_date ON medical_observations(obs_date);
+CREATE INDEX IF NOT EXISTS idx_obs_item ON medical_observations(item_name);
+CREATE INDEX IF NOT EXISTS idx_obs_cat_site ON medical_observations(category, body_site);
+CREATE INDEX IF NOT EXISTS idx_obs_doc ON medical_observations(document_id);
+
+-- 患者病情清单（取代以 markdown 文件名探测疾病的硬编码逻辑）
+CREATE TABLE IF NOT EXISTS medical_conditions (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    name               TEXT NOT NULL,               -- '原发性开角型青光眼' / '高尿酸血症'
+    icd10_code         TEXT,
+    status             TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'resolved' | 'suspected'
+    onset_date         TEXT,
+    source_document_id INTEGER REFERENCES medical_documents(id) ON DELETE SET NULL,
+    notes              TEXT,
+    updated_at         TIMESTAMP DEFAULT (datetime('now','localtime')),
+    UNIQUE(name)
+);
+CREATE INDEX IF NOT EXISTS idx_conditions_status ON medical_conditions(status);
+
 -- ─── Column Migrations ────────────────────────────────────────────────
 -- 新增列统一写在这里，格式：ALTER TABLE t ADD COLUMN IF NOT EXISTS col type;
 -- 已在建表时包含的列无需重复列出
 
 ALTER TABLE exercises ADD COLUMN start_time TEXT;
 ALTER TABLE exercises ADD COLUMN details TEXT;
+
+-- medical_conditions：复诊配置（由 appointment_scheduler 使用）
+ALTER TABLE medical_conditions ADD COLUMN follow_up_months INTEGER;
+ALTER TABLE medical_conditions ADD COLUMN follow_up_hospital TEXT;
+ALTER TABLE medical_conditions ADD COLUMN follow_up_department TEXT;
 
 -- 天气表：全天温度区间（来自3日预报接口）
 ALTER TABLE weather ADD COLUMN temp_max REAL;
@@ -419,3 +377,33 @@ ALTER TABLE learned_preferences ADD COLUMN status TEXT DEFAULT 'active';
 -- learned_preferences：关联阶段性目标 + 最后有效时间
 ALTER TABLE learned_preferences ADD COLUMN goal_id INTEGER;
 ALTER TABLE learned_preferences ADD COLUMN last_effective_at TEXT;
+
+-- goals：CLI/模型兼容字段
+ALTER TABLE goals ADD COLUMN description TEXT;
+ALTER TABLE goals ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
+ALTER TABLE goals ADD COLUMN target_date TEXT;
+
+-- goals 表结构迁移：保留 CLI/模型依赖字段并补齐缺失列
+DROP TABLE IF EXISTS goals_new;
+CREATE TABLE goals_new (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    name              TEXT NOT NULL,
+    description       TEXT,
+    priority          INTEGER NOT NULL DEFAULT 2,
+    status            TEXT NOT NULL DEFAULT 'active',
+    metric_key        TEXT NOT NULL,
+    direction         TEXT NOT NULL,
+    baseline_value    REAL,
+    target_value      REAL,
+    start_date        TEXT NOT NULL,
+    target_date       TEXT,
+    achieved_date     TEXT,
+    notes             TEXT,
+    created_at        TIMESTAMP DEFAULT (datetime('now','localtime')),
+    updated_at        TIMESTAMP DEFAULT (datetime('now','localtime'))
+);
+INSERT INTO goals_new (id, name, description, priority, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
+SELECT id, name, description, priority, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
+DROP TABLE goals;
+ALTER TABLE goals_new RENAME TO goals;
+CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);

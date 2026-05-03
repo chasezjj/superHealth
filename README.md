@@ -212,7 +212,7 @@ account_id    = "your_account_id"
 - **反馈闭环学习**：自动采集依从度 → 效果追踪 → 贝叶斯偏好学习
 - **N-of-1 干预实验**：自我实验设计、执行、统计评估
 - **就医提醒系统**：自动推算复诊日期，14 / 7 天阈值提醒
-- **Web 仪表盘**：Streamlit 9 个子页面，趋势图表、化验对比、PDF 导出
+- **Web 仪表盘**：Streamlit 多个子页面，趋势图表、化验对比
 - **OpenClaw 集成**：微信每日晨报推送
 
 ---
@@ -446,7 +446,7 @@ All health scores are anchored to your **personal 90-day rolling baseline**, not
 - **Local-first privacy**: All data stored in SQLite on your device, no cloud upload
 - **Dual LLM support**: Anthropic Claude + Baichuan Medical LLM (parallel or single mode)
 - **OpenClaw/WeChat integration**: Daily morning health digest pushed to WeChat
-- **Web dashboard**: Streamlit, 9 pages — overview, trends, lab results, correlations, risk prediction, experiments, PDF export
+- **Web dashboard**: Streamlit, multiple pages — overview, trends, lab results, correlations, risk prediction, experiments
 
 ### Real-World Validation
 

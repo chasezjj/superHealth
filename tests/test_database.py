@@ -24,7 +24,7 @@ class TestDatabaseInit:
             table_names = {r["name"] for r in tables}
         assert "daily_health" in table_names
         assert "vitals" in table_names
-        assert "lab_results" in table_names
+        assert "medical_observations" in table_names
         assert "medications" in table_names
         assert "goals" in table_names
 

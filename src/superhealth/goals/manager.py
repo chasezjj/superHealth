@@ -38,16 +38,15 @@ class GoalManager:
         self,
         *,
         name: str,
-        priority: int,
+        priority: int = 2,
         metric_key: str,
         direction: str,
         target: Optional[float] = None,
         target_date: Optional[str] = None,
         description: Optional[str] = None,
-        notes: Optional[str] = None,
         baseline_value: Optional[float] = None,
     ) -> int:
-        """添加新目标，自动计算基线。
+        """添加新目标，自动计算基线。同一时间只能有一个活跃目标。
 
         Returns:
             新目标的 ID。
@@ -56,7 +55,7 @@ class GoalManager:
             raise ValueError(f"不支持的指标 key: {metric_key}，可选: {sorted(VALID_METRIC_KEYS)}")
         if direction not in VALID_DIRECTIONS:
             raise ValueError(f"direction 必须是 {VALID_DIRECTIONS} 之一")
-        if priority < 1 or priority > 3:
+        if priority not in (1, 2, 3):
             raise ValueError("priority 必须是 1-3")
 
         today = date.today().isoformat()
@@ -76,8 +75,8 @@ class GoalManager:
                 """
                 INSERT INTO goals
                     (name, description, priority, status, metric_key, direction,
-                     baseline_value, target_value, start_date, target_date, notes)
-                VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)
+                     baseline_value, target_value, start_date, target_date)
+                VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)
             """,
                 (
                     name,
@@ -89,7 +88,6 @@ class GoalManager:
                     target,
                     today,
                     target_date,
-                    notes,
                 ),
             )
             goal_id = cursor.lastrowid or 0
@@ -108,12 +106,12 @@ class GoalManager:
         with self._get_conn() as conn:
             if status:
                 rows = conn.execute(
-                    "SELECT * FROM goals WHERE status = ? ORDER BY priority, start_date DESC",
+                    "SELECT * FROM goals WHERE status = ? ORDER BY start_date DESC",
                     (status,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM goals ORDER BY status != 'active', priority, start_date DESC"
+                    "SELECT * FROM goals ORDER BY status != 'active', start_date DESC"
                 ).fetchall()
             return [dict(row) for row in rows]
 
@@ -124,7 +122,13 @@ class GoalManager:
             return dict(row) if row else None
 
     def update_status(self, goal_id: int, status: str, notes: Optional[str] = None):
-        """更新目标状态（用户 CLI 触发）。"""
+        """更新目标状态（用户 CLI 触发）。
+
+        若目标进入 achieved / paused / abandoned，会自动处理绑定的实验：
+        - achieved：active 实验标记为 completed（随目标结案）
+        - paused / abandoned：active 实验标记为 reverted（随目标回退）
+        - 同时清理该目标下所有 draft 实验
+        """
         if status not in VALID_STATUSES:
             raise ValueError(f"status 必须是 {VALID_STATUSES} 之一")
         with self._get_conn() as conn:
@@ -138,7 +142,83 @@ class GoalManager:
                 params.append(notes)
             params.append(goal_id)
             conn.execute(f"UPDATE goals SET {', '.join(updates)} WHERE id = ?", params)
+
+            # ── 目标结案/暂停/废弃时，自动处理绑定实验 ──
+            if status in ("achieved", "paused", "abandoned"):
+                self._close_bound_experiments(conn, goal_id, status)
+
             log.info("GOAL_STATUS_CHANGED id=%d status=%s", goal_id, status)
+
+    def _close_bound_experiments(
+        self, conn: sqlite3.Connection, goal_id: int, goal_status: str
+    ) -> None:
+        """目标进入终态时，自动完成/回退绑定的 active 实验，并清理 draft 实验。"""
+        # active 实验 → completed 或 reverted
+        active_rows = conn.execute(
+            "SELECT id FROM experiments WHERE goal_id = ? AND status = 'active'",
+            (goal_id,),
+        ).fetchall()
+        for row in active_rows:
+            exp_id = row["id"]
+            if goal_status == "achieved":
+                conclusion = "目标已达成，实验随目标自动结案"
+                new_status = "completed"
+            else:
+                conclusion = f"目标已{'废弃' if goal_status == 'abandoned' else '暂停'}，实验随目标自动回退"
+                new_status = "reverted"
+            conn.execute(
+                """UPDATE experiments
+                   SET status=?, conclusion=?, conclusion_date=date('now','localtime'),
+                       updated_at=datetime('now','localtime')
+                   WHERE id=?""",
+                (new_status, conclusion, exp_id),
+            )
+            # 清理 active_experiment preference
+            conn.execute(
+                "DELETE FROM learned_preferences WHERE preference_key = ?",
+                (f"active_exp_{exp_id}",),
+            )
+            log.info("EXPERIMENT_AUTO_%s id=%d goal_status=%s", new_status.upper(), exp_id, goal_status)
+
+        # draft 实验直接删除
+        draft_rows = conn.execute(
+            "SELECT id FROM experiments WHERE goal_id = ? AND status = 'draft'",
+            (goal_id,),
+        ).fetchall()
+        for row in draft_rows:
+            conn.execute("DELETE FROM experiments WHERE id = ?", (row["id"],))
+            log.info("EXPERIMENT_AUTO_DELETED id=%d goal_id=%d", row["id"], goal_id)
+
+    # 删除目标时禁止存在的实验状态：仍在生命周期内、未结案
+    BLOCKING_EXPERIMENT_STATUSES = ("draft", "active", "evaluating")
+
+    def get_blocking_experiments(self, goal_id: int) -> list[dict]:
+        """返回阻止删除目标的实验：状态为 draft/active/evaluating 的绑定实验。"""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"""SELECT id, name, status FROM experiments
+                    WHERE goal_id = ?
+                      AND status IN ({",".join("?" * len(self.BLOCKING_EXPERIMENT_STATUSES))})
+                    ORDER BY id""",
+                (goal_id, *self.BLOCKING_EXPERIMENT_STATUSES),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_goal(self, goal_id: int) -> None:
+        """删除目标及其所有 progress 记录（CASCADE）。
+
+        若存在状态为 draft/active/evaluating 的绑定实验，会抛 ValueError，
+        要求调用方先到实验追踪页面取消或删除这些实验。
+        """
+        blocking = self.get_blocking_experiments(goal_id)
+        if blocking:
+            details = "、".join(f"{e['name']}（{e['status']}）" for e in blocking)
+            raise ValueError(
+                f"该目标仍有未结案的绑定实验：{details}。请先到实验追踪页取消或删除后再删除目标。"
+            )
+        with self._get_conn() as conn:
+            conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
+            log.info("GOAL_DELETED id=%d", goal_id)
 
     def get_goal_progress(self, goal_id: int, days: int = 30) -> list[dict]:
         """获取目标的历史进度。"""
@@ -158,7 +238,7 @@ class GoalManager:
             return [
                 dict(r)
                 for r in c.execute(
-                    "SELECT * FROM goals WHERE status = 'active' ORDER BY priority"
+                    "SELECT * FROM goals WHERE status = 'active' ORDER BY start_date DESC"
                 ).fetchall()
             ]
 

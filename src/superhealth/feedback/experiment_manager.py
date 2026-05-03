@@ -406,88 +406,108 @@ class ExperimentManager:
     def _generate_with_llm(
         self, goal_id: int, metric_key: str, direction: str, goal_name: str
     ) -> list[dict] | None:
+        """生成干预方案：优先百川，未配置时降级到 Claude（Anthropic）。"""
+        prompt = self._build_intervention_prompt(metric_key, direction, goal_name)
+
+        # 1) 尝试百川
+        result = self._generate_with_baichuan(prompt, goal_id, metric_key, direction)
+        if result is not None:
+            return result
+
+        # 2) 降级到 Claude（Anthropic 协议）
+        result = self._generate_with_claude(prompt, goal_id, metric_key, direction)
+        if result is not None:
+            return result
+
+        return None
+
+    def _build_intervention_prompt(self, metric_key: str, direction: str, goal_name: str) -> str:
+        """构建干预方案生成的 prompt。"""
+        conditions = []
+        contraindications = []
+        try:
+            from superhealth.core.health_profile_builder import HealthProfileBuilder
+
+            builder = HealthProfileBuilder(self.db_path)
+            profile = builder.build()
+            conditions = [c for c in profile.conditions] if profile.conditions else []
+            contraindications = (
+                [c for c in profile.exercise_contraindications]
+                if profile.exercise_contraindications
+                else []
+            )
+        except Exception:
+            pass
+
+        metric_label = _METRIC_LABELS.get(metric_key, metric_key)
+        dir_label = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}.get(
+            direction, direction
+        )
+
+        prompt = (
+            f"我正在设计一个 N-of-1 自我实验，目标是「{dir_label}{metric_label}」（目标名称：{goal_name}）。\n"
+            f"请生成 5-8 个具体可执行的干预方案，每个方案需包含：\n"
+            f'1. **方案名称**：简洁概括（如"中等强度有氧干预"）\n'
+            f"2. **干预方案**：明确的具体执行参数（组数×时间/次数、强度、频率），不能模糊\n"
+            f'3. **科学假设**：一个可证伪的预测，如"执行本方案{dir_label}{metric_label}约X单位（基于循证证据）"——必须是具体数值预测，不是干预方案的复述\n'
+            f"4. **循证来源**：具体指南名称或 Meta 分析结论\n"
+            f"5. **建议实验天数**：14-21 天\n\n"
+            f"要求：\n"
+            f"- 强度足够产生可测量的生理变化（14-21 天内）\n"
+            f"- 方案之间有明显差异（运动类型/强度/时段/机制不同），便于 A/B 对比\n"
+            f'- 假设必须与干预方案有区分度，假设是"预期发生什么"，干预是"具体做什么"\n'
+        )
+
+        if conditions:
+            cond_labels = {"hyperuricemia": "高尿酸血症", "glaucoma": "青光眼"}
+            cond_str = "、".join(cond_labels.get(c, c) for c in conditions)
+            prompt += f"\n用户合并症：{cond_str}（方案须考虑合并症安全性）\n"
+
+        if contraindications:
+            contra_labels = {
+                "valsalva_maneuver": "憋气/Valsalva 动作",
+                "inverted_positions": "倒立体位",
+                "maximal_isometric": "最大等长收缩",
+            }
+            contra_str = "、".join(contra_labels.get(c, c) for c in contraindications)
+            prompt += f"运动禁忌：{contra_str}\n"
+
+        prompt += (
+            "\n请严格按以下 JSON 格式回复（不要输出 JSON 以外的内容）：\n"
+            "[\n"
+            '  {"name": "方案名称", "intervention": "具体执行方案（含参数）", "hypothesis": "可证伪的科学假设（含预期效果数值）", "duration": 14, "evidence": "循证来源"},\n'
+            "  ...\n"
+            "]"
+        )
+        return prompt
+
+    def _generate_with_baichuan(
+        self, prompt: str, goal_id: int, metric_key: str, direction: str
+    ) -> list[dict] | None:
         """调用百川生成干预方案。"""
         try:
             from superhealth.config import load as load_config
 
             cfg = load_config()
             if not cfg.baichuan or not cfg.baichuan.api_key:
-                log.info("百川未配置，跳过 LLM 生成")
+                log.info("百川未配置，跳过")
                 return None
 
             from superhealth.core.baichuan_advisor import BaichuanMedicalAdvisor
 
             advisor = BaichuanMedicalAdvisor()
-
-            # 加载用户健康背景
-            conditions = []
-            contraindications = []
-            try:
-                from superhealth.core.health_profile_builder import HealthProfileBuilder
-
-                builder = HealthProfileBuilder(self.db_path)
-                profile = builder.build()
-                conditions = [c for c in profile.conditions] if profile.conditions else []
-                contraindications = (
-                    [c for c in profile.exercise_contraindications]
-                    if profile.exercise_contraindications
-                    else []
-                )
-            except Exception:
-                pass
-
-            metric_label = _METRIC_LABELS.get(metric_key, metric_key)
-            dir_label = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}.get(
-                direction, direction
-            )
-
-            prompt = (
-                f"我正在设计一个 N-of-1 自我实验，目标是「{dir_label}{metric_label}」（目标名称：{goal_name}）。\n"
-                f"请生成 5-8 个具体可执行的干预方案，每个方案需包含：\n"
-                f'1. **方案名称**：简洁概括（如"中等强度有氧干预"）\n'
-                f"2. **干预方案**：明确的具体执行参数（组数×时间/次数、强度、频率），不能模糊\n"
-                f'3. **科学假设**：一个可证伪的预测，如"执行本方案{dir_label}{metric_label}约X单位（基于循证证据）"——必须是具体数值预测，不是干预方案的复述\n'
-                f"4. **循证来源**：具体指南名称或 Meta 分析结论\n"
-                f"5. **建议实验天数**：14-21 天\n\n"
-                f"要求：\n"
-                f"- 强度足够产生可测量的生理变化（14-21 天内）\n"
-                f"- 方案之间有明显差异（运动类型/强度/时段/机制不同），便于 A/B 对比\n"
-                f'- 假设必须与干预方案有区分度，假设是"预期发生什么"，干预是"具体做什么"\n'
-            )
-
-            if conditions:
-                cond_labels = {"hyperuricemia": "高尿酸血症", "glaucoma": "青光眼"}
-                cond_str = "、".join(cond_labels.get(c, c) for c in conditions)
-                prompt += f"\n用户合并症：{cond_str}（方案须考虑合并症安全性）\n"
-
-            if contraindications:
-                contra_labels = {
-                    "valsalva_maneuver": "憋气/Valsalva 动作",
-                    "inverted_positions": "倒立体位",
-                    "maximal_isometric": "最大等长收缩",
-                }
-                contra_str = "、".join(contra_labels.get(c, c) for c in contraindications)
-                prompt += f"运动禁忌：{contra_str}\n"
-
-            prompt += (
-                "\n请严格按以下 JSON 格式回复（不要输出 JSON 以外的内容）：\n"
-                "[\n"
-                '  {"name": "方案名称", "intervention": "具体执行方案（含参数）", "hypothesis": "可证伪的科学假设（含预期效果数值）", "duration": 14, "evidence": "循证来源"},\n'
-                "  ...\n"
-                "]"
-            )
-
             client = advisor._get_client()
             response = client.chat.completions.create(
                 model=cfg.baichuan.model,
                 max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
+                timeout=120,
             )
             raw = response.choices[0].message.content.strip()
             parsed = self._extract_json_list(raw)
 
             if not parsed:
-                log.warning("百川返回的 JSON 解析失败: %s", raw[:200])
+                log.warning("百川返回 JSON 解析失败: %s", raw[:200])
                 return None
 
             return [
@@ -505,12 +525,65 @@ class ExperimentManager:
                 }
                 for i, item in enumerate(parsed)
             ]
-
         except ImportError:
-            log.info("openai SDK 未安装，跳过百川生成")
+            log.info("openai SDK 未安装，跳过百川")
             return None
         except Exception as e:
-            log.warning("百川生成干预方案失败: %s", e)
+            log.warning("百川生成失败: %s", e)
+            return None
+
+    def _generate_with_claude(
+        self, prompt: str, goal_id: int, metric_key: str, direction: str
+    ) -> list[dict] | None:
+        """调用 Claude（Anthropic 协议）生成干预方案。"""
+        try:
+            from superhealth.config import load as load_config
+
+            cfg = load_config()
+            if not cfg.claude or not cfg.claude.api_key:
+                log.info("Claude 未配置，跳过")
+                return None
+
+            import anthropic
+
+            kwargs = {"api_key": cfg.claude.api_key}
+            if cfg.claude.base_url:
+                kwargs["base_url"] = cfg.claude.base_url
+            client = anthropic.Anthropic(**kwargs)
+
+            message = client.messages.create(
+                model=cfg.claude.model,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=120,
+            )
+            raw = str(next(b.text for b in message.content if b.type == "text")).strip()
+            parsed = self._extract_json_list(raw)
+
+            if not parsed:
+                log.warning("Claude 返回 JSON 解析失败: %s", raw[:200])
+                return None
+
+            return [
+                {
+                    "index": i,
+                    "name": item.get("name", f"干预方案 {i + 1}"),
+                    "intervention": item.get("intervention", ""),
+                    "hypothesis": item.get("hypothesis", ""),
+                    "duration": item.get("duration", 14),
+                    "evidence": item.get("evidence", ""),
+                    "goal_id": goal_id,
+                    "metric_key": metric_key,
+                    "direction": direction,
+                    "source": "llm",
+                }
+                for i, item in enumerate(parsed)
+            ]
+        except ImportError:
+            log.info("anthropic SDK 未安装，跳过 Claude")
+            return None
+        except Exception as e:
+            log.warning("Claude 生成失败: %s", e)
             return None
 
     @staticmethod

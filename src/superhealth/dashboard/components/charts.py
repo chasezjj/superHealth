@@ -577,8 +577,8 @@ def chart_unified_lab_trend(
 
     if show_source and "source" in df.columns:
         # 按数据来源分组显示
-        lab_data = df[df["source"] == "lab_results"]
-        checkup_data = df[df["source"] == "annual_checkups"]
+        lab_data = df[~df["source"].isin(["annual_checkup"])]
+        checkup_data = df[df["source"] == "annual_checkup"]
 
         # 年度体检 - 橙色圆点
         if not checkup_data.empty:

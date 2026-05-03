@@ -5,7 +5,6 @@ from __future__ import annotations
 import streamlit as st
 
 from superhealth.analysis.trends import TrendAnalyzer
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import (
     chart_bp,
     chart_exercise_gantt,
@@ -69,5 +68,3 @@ def render():
 
     # 图5：运动甘特图
     st.plotly_chart(chart_exercise_gantt(df_ex), width="stretch")
-
-    disclaimer.render()

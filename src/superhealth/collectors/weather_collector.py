@@ -46,6 +46,11 @@ log = logging.getLogger(__name__)
 
 DB_PATH = get_db_path()
 
+
+class SSLVerificationError(Exception):
+    """SSL 证书验证失败，重试无用。"""
+
+
 # 降水类型代码（和风天气 icon code 映射）
 # 参考：https://dev.qweather.com/docs/resource/icons/
 _RAIN_CODES = {
@@ -194,7 +199,14 @@ def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
             if raw[:2] == b"\x1f\x8b":
                 raw = gzip.decompress(raw)
             return _json.loads(raw.decode("utf-8"))  # type: ignore[no-any-return]
-    except (URLError, _json.JSONDecodeError, Exception) as e:
+    except URLError as e:
+        reason = str(e.reason) if hasattr(e, "reason") else str(e)
+        if "CERTIFICATE_VERIFY_FAILED" in reason or "SSL" in reason:
+            log.warning("天气 API SSL 证书验证失败，跳过请求: %s", url.split("?")[0])
+            raise SSLVerificationError(f"SSL 证书验证失败: {reason}") from e
+        log.warning("天气 API 请求失败: %s — %s", url.split("?")[0], e)
+        return None
+    except (_json.JSONDecodeError, Exception) as e:
         log.warning("天气 API 请求失败: %s — %s", url.split("?")[0], e)
         return None
 
@@ -365,6 +377,8 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
                 outdoor_ok=outdoor_ok,
             )
             break
+        except SSLVerificationError:
+            return None
         except Exception as e:
             if attempt == MAX_RETRIES:
                 log.error("天气采集失败，已重试 %d 次: %s", MAX_RETRIES, e)

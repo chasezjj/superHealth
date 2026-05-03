@@ -1,6 +1,6 @@
 """测试 reminders 子系统。"""
 from datetime import date
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +20,7 @@ class TestReminderRule:
     def test_glaucoma_rule(self):
         rule = next(r for r in REMINDER_RULES if r.condition == "glaucoma")
         assert rule.interval_months == 3
-        assert rule.source_table == "eye_exams"
+        assert rule.source_table == "medical_observations"
 
     def test_hyperuricemia_rule(self):
         rule = next(r for r in REMINDER_RULES if r.condition == "hyperuricemia")
@@ -31,11 +31,13 @@ class TestReminderRule:
 class TestQueryLastExamDate:
     def test_with_filter(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_lab_result(conn, date="2025-01-01", source="hospital", item_name="尿酸", value=400)
-            db.insert_lab_result(conn, date="2025-02-01", source="hospital", item_name="尿酸", value=420)
+            db.bulk_insert_observations(conn, [
+                {"obs_date": "2025-01-01", "category": "lab", "item_name": "尿酸", "value_num": 400},
+                {"obs_date": "2025-02-01", "category": "lab", "item_name": "尿酸", "value_num": 420},
+            ])
             rule = ReminderRule(
                 condition="hyperuricemia", label="高尿酸", hospital=None, department=None,
-                interval_months=6, source_table="lab_results", date_field="date",
+                interval_months=6, source_table="medical_observations", date_field="obs_date",
                 item_filter={"item_name": "尿酸"},
             )
             last_date, exam_id = _query_last_exam_date(conn, rule)
@@ -43,10 +45,13 @@ class TestQueryLastExamDate:
 
     def test_without_filter(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_eye_exam(conn, date="2025-03-01", od_iop=15, os_iop=16)
+            db.bulk_insert_observations(conn, [
+                {"obs_date": "2025-03-01", "category": "eye", "item_name": "右眼眼压", "value_num": 15},
+            ])
             rule = ReminderRule(
                 condition="glaucoma", label="青光眼", hospital=None, department=None,
-                interval_months=3, source_table="eye_exams", date_field="date",
+                interval_months=3, source_table="medical_observations", date_field="obs_date",
+                item_filter={"category": "eye"},
             )
             last_date, exam_id = _query_last_exam_date(conn, rule)
         assert last_date == "2025-03-01"
@@ -55,7 +60,8 @@ class TestQueryLastExamDate:
         with db.get_conn(tmp_db) as conn:
             rule = ReminderRule(
                 condition="glaucoma", label="青光眼", hospital=None, department=None,
-                interval_months=3, source_table="eye_exams", date_field="date",
+                interval_months=3, source_table="medical_observations", date_field="obs_date",
+                item_filter={"category": "eye"},
             )
             last_date, exam_id = _query_last_exam_date(conn, rule)
         assert last_date is None
@@ -65,18 +71,20 @@ class TestQueryLastExamDate:
 class TestRefreshAppointments:
     def test_dry_run(self, tmp_db, capsys):
         with db.get_conn(tmp_db) as conn:
-            db.insert_eye_exam(conn, date="2025-01-01", od_iop=15, os_iop=16)
+            db.bulk_insert_observations(conn, [
+                {"obs_date": "2025-01-01", "category": "eye", "item_name": "右眼眼压", "value_num": 15},
+            ])
 
         with db.get_conn(tmp_db) as conn:
             rule = ReminderRule(
                 condition="glaucoma", label="青光眼", hospital=None, department=None,
-                interval_months=3, source_table="eye_exams", date_field="date",
+                interval_months=3, source_table="medical_observations", date_field="obs_date",
+                item_filter={"category": "eye"},
             )
             last_date, _ = _query_last_exam_date(conn, rule)
         assert last_date is not None
-        due = date.fromisoformat(last_date)
         from dateutil.relativedelta import relativedelta
-        expected_due = (due + relativedelta(months=3)).isoformat()
+        expected_due = (date.fromisoformat(last_date) + relativedelta(months=3)).isoformat()
 
         with patch(
             "superhealth.reminders.appointment_scheduler.get_conn",
@@ -84,7 +92,6 @@ class TestRefreshAppointments:
         ):
             results = refresh_appointments(dry_run=True)
 
-        # Should have at least glaucoma result
         glaucoma = next((r for r in results if r["condition"] == "glaucoma"), None)
         assert glaucoma is not None
         assert glaucoma["due_date"] == expected_due

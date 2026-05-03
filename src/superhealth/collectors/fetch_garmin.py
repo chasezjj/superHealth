@@ -58,7 +58,7 @@ def _normalize_activity_name(name: str) -> str:
 _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
 OUTPUT_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
-SESSION_FILE = Path.home() / ".garmin_cn_session.json"
+SESSION_FILE = Path.home() / ".superhealth" / "garmin_cn_session.json"
 _LEGACY_CONFIG_FILE = Path.home() / ".garmin_cn_config.json"  # 旧格式，向后兼容
 
 SSO_BASE = "https://sso.garmin.cn"
@@ -161,6 +161,7 @@ def _save_session(cookies, csrf_token, user_id):
             if "garmin" in c["domain"]
         ],
     }
+    SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
     SESSION_FILE.write_text(json.dumps(data, indent=2))
     SESSION_FILE.chmod(0o600)
     log.info("Session 已保存到 %s", SESSION_FILE)
@@ -243,6 +244,10 @@ def _api_get(session, path, params=None):
 def _save_config(email: str, password: str) -> None:
     """保存账号密码到 ~/.superhealth/config.toml。"""
     from superhealth.config import CONFIG_PATH, save_garmin
+
+    existing_email, existing_password = _load_config()
+    if existing_email == email and existing_password == password:
+        return
 
     save_garmin(email, password)
     log.info("账号密码已保存到 %s", CONFIG_PATH)

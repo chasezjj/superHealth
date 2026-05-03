@@ -115,22 +115,6 @@ METRIC_REGISTRY: dict[str, MetricSpec] = {
         frequency="daily",
         aggregation="mean_7d",
     ),
-    "uric_acid_latest": MetricSpec(
-        key="uric_acid_latest",
-        label="最近化验尿酸值",
-        table="lab_results",
-        column="value",
-        frequency="low_freq",
-        aggregation="latest",
-    ),
-    "iop_mean_recent": MetricSpec(
-        key="iop_mean_recent",
-        label="眼压均值（青光眼目标）",
-        table="eye_exams",
-        column="od_iop",
-        frequency="low_freq",
-        aggregation="latest",
-    ),
 }
 
 VALID_METRIC_KEYS = set(METRIC_REGISTRY.keys())
@@ -201,25 +185,6 @@ class GoalMetricRegistry:
             """,
                 (start, end),
             ).fetchone()
-        elif spec.table == "lab_results":
-            rows = conn.execute(
-                f"""
-                SELECT AVG({spec.column}) FROM {spec.table}
-                WHERE {spec.column} IS NOT NULL
-                  AND date BETWEEN ? AND ?
-                  AND item_name IN ('尿酸', '血尿酸', 'UA')
-            """,
-                (start, end),
-            ).fetchone()
-        elif spec.table == "eye_exams":
-            rows = conn.execute(
-                f"""
-                SELECT AVG((od_iop + os_iop) / 2.0) FROM {spec.table}
-                WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
-                  AND date BETWEEN ? AND ?
-            """,
-                (start, end),
-            ).fetchone()
         else:
             rows = conn.execute(
                 f"""
@@ -236,37 +201,15 @@ class GoalMetricRegistry:
         self, conn: sqlite3.Connection, spec: MetricSpec, ref_date: str
     ) -> Optional[float]:
         """查询 ref_date 及之前的最近一次检测值。"""
-        if spec.table == "lab_results":
-            row = conn.execute(
-                f"""
-                SELECT {spec.column} FROM {spec.table}
-                WHERE {spec.column} IS NOT NULL
-                  AND date <= ?
-                  AND item_name IN ('尿酸', '血尿酸', 'UA')
-                ORDER BY date DESC LIMIT 1
-            """,
-                (ref_date,),
-            ).fetchone()
-        elif spec.table == "eye_exams":
-            row = conn.execute(
-                """
-                SELECT (od_iop + os_iop) / 2.0 FROM eye_exams
-                WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
-                  AND date <= ?
-                ORDER BY date DESC LIMIT 1
-            """,
-                (ref_date,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                f"""
-                SELECT {spec.column} FROM {spec.table}
-                WHERE {spec.column} IS NOT NULL
-                  AND date <= ?
-                ORDER BY date DESC LIMIT 1
-            """,
-                (ref_date,),
-            ).fetchone()
+        row = conn.execute(
+            f"""
+            SELECT {spec.column} FROM {spec.table}
+            WHERE {spec.column} IS NOT NULL
+              AND date <= ?
+            ORDER BY date DESC LIMIT 1
+        """,
+            (ref_date,),
+        ).fetchone()
 
         return row[0] if row and row[0] is not None else None
 
@@ -274,37 +217,15 @@ class GoalMetricRegistry:
         self, conn: sqlite3.Connection, spec: MetricSpec, before_date: str
     ) -> Optional[float]:
         """查询 before_date 之前（不含）的最近一次检测值。"""
-        if spec.table == "lab_results":
-            row = conn.execute(
-                f"""
-                SELECT {spec.column} FROM {spec.table}
-                WHERE {spec.column} IS NOT NULL
-                  AND date < ?
-                  AND item_name IN ('尿酸', '血尿酸', 'UA')
-                ORDER BY date DESC LIMIT 1
-            """,
-                (before_date,),
-            ).fetchone()
-        elif spec.table == "eye_exams":
-            row = conn.execute(
-                """
-                SELECT (od_iop + os_iop) / 2.0 FROM eye_exams
-                WHERE od_iop IS NOT NULL AND os_iop IS NOT NULL
-                  AND date < ?
-                ORDER BY date DESC LIMIT 1
-            """,
-                (before_date,),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                f"""
-                SELECT {spec.column} FROM {spec.table}
-                WHERE {spec.column} IS NOT NULL
-                  AND date < ?
-                ORDER BY date DESC LIMIT 1
-            """,
-                (before_date,),
-            ).fetchone()
+        row = conn.execute(
+            f"""
+            SELECT {spec.column} FROM {spec.table}
+            WHERE {spec.column} IS NOT NULL
+              AND date < ?
+            ORDER BY date DESC LIMIT 1
+        """,
+            (before_date,),
+        ).fetchone()
 
         return row[0] if row and row[0] is not None else None
 

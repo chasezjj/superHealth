@@ -20,7 +20,7 @@ class TestLoadConfig:
         assert conf.wechat.channel == "test-ch"
         assert conf.wechat.target == "test-target"
 
-    def test_env_vars_override_toml(self, tmp_path):
+    def test_toml_takes_priority_over_env(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
             '[wechat]\naccount_id = "from-file"\nchannel = "from-file"\ntarget = "from-file"\n'
@@ -32,19 +32,30 @@ class TestLoadConfig:
         }
         with patch.dict(os.environ, env):
             conf = cfg.load(toml_file)
-        assert conf.wechat.account_id == "from-env"
-        assert conf.wechat.channel == "from-env-ch"
-        assert conf.wechat.target == "from-env-target"
+        # toml 中显式填写的值应胜过环境变量
+        assert conf.wechat.account_id == "from-file"
+        assert conf.wechat.channel == "from-file"
+        assert conf.wechat.target == "from-file"
 
-    def test_partial_env_override(self, tmp_path):
+    def test_env_used_as_fallback_when_toml_empty(self, tmp_path):
+        """toml 字段为空字符串时，env 作为 fallback 生效。"""
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
-            '[wechat]\naccount_id = "from-file"\nchannel = "from-file"\ntarget = "from-file"\n'
+            '[wechat]\naccount_id = ""\nchannel = "from-file"\ntarget = ""\n'
         )
-        with patch.dict(os.environ, {"HEALTHY_WECHAT_ACCOUNT_ID": "from-env"}):
+        with patch.dict(
+            os.environ,
+            {
+                "HEALTHY_WECHAT_ACCOUNT_ID": "from-env",
+                "HEALTHY_WECHAT_TARGET": "from-env-target",
+            },
+        ):
             conf = cfg.load(toml_file)
+        # 空字符串视作"未设置"，使用 env
         assert conf.wechat.account_id == "from-env"
-        assert conf.wechat.channel == "from-file"  # 未被覆盖
+        assert conf.wechat.target == "from-env-target"
+        # toml 显式填写的值仍优先
+        assert conf.wechat.channel == "from-file"
 
     def test_missing_config_file_returns_defaults(self, tmp_path):
         conf = cfg.load(tmp_path / "nonexistent.toml")
@@ -71,9 +82,21 @@ class TestLoadConfig:
         assert conf.garmin.email == "user@test.com"
         assert conf.garmin.password == "pw"
 
-    def test_load_garmin_env_overrides(self, tmp_path):
+    def test_load_garmin_toml_takes_priority_over_env(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         toml_file.write_text('[garmin]\nemail = "file"\npassword = "filepw"\n')
+        with patch.dict(
+            os.environ,
+            {"HEALTHY_GARMIN_EMAIL": "envuser", "HEALTHY_GARMIN_PASSWORD": "envpw"},
+        ):
+            conf = cfg.load(toml_file)
+        # toml 显式值胜过 env
+        assert conf.garmin.email == "file"
+        assert conf.garmin.password == "filepw"
+
+    def test_load_garmin_env_used_when_toml_empty(self, tmp_path):
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text('[garmin]\nemail = ""\npassword = ""\n')
         with patch.dict(
             os.environ,
             {"HEALTHY_GARMIN_EMAIL": "envuser", "HEALTHY_GARMIN_PASSWORD": "envpw"},
@@ -115,8 +138,9 @@ class TestLoadConfig:
         assert isinstance(conf.vitals.port, int)
 
     def test_load_claude_anthropic_env_takes_priority_over_healthy(self, tmp_path):
+        # 当 toml 中 api_key 为空时，env 之间的优先级：ANTHROPIC_API_KEY > HEALTHY_CLAUDE_API_KEY
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text('[claude]\napi_key = "from-toml"\n')
+        toml_file.write_text('[claude]\napi_key = ""\n')
         with patch.dict(
             os.environ,
             {"ANTHROPIC_API_KEY": "anth", "HEALTHY_CLAUDE_API_KEY": "healthy"},
@@ -125,10 +149,21 @@ class TestLoadConfig:
             conf = cfg.load(toml_file)
         assert conf.claude.api_key == "anth"
 
-    def test_load_claude_healthy_env_takes_priority_over_toml(self, tmp_path):
+    def test_load_claude_toml_takes_priority_over_env(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         toml_file.write_text('[claude]\napi_key = "from-toml"\n')
-        # 清除 ANTHROPIC_API_KEY 以隔离测试
+        # 环境变量都设置但 toml 显式值应胜过 env
+        with patch.dict(
+            os.environ,
+            {"ANTHROPIC_API_KEY": "anth", "HEALTHY_CLAUDE_API_KEY": "healthy"},
+            clear=False,
+        ):
+            conf = cfg.load(toml_file)
+        assert conf.claude.api_key == "from-toml"
+
+    def test_load_claude_env_used_when_toml_empty(self, tmp_path):
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text('[claude]\napi_key = ""\n')
         with patch.dict(os.environ, {"HEALTHY_CLAUDE_API_KEY": "healthy"}, clear=False):
             os.environ.pop("ANTHROPIC_API_KEY", None)
             conf = cfg.load(toml_file)

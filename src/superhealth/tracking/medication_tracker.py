@@ -69,49 +69,35 @@ class MedicationTracker:
         with db.get_conn(self.db_path) as conn:
             return db.query_medication_by_condition(conn, condition)
 
-    def link_to_lab_result(
+    def link_to_observation(
         self,
         medication_id: int,
-        lab_result_id: int,
+        observation_id: int,
         expected_effect: str,
         actual_effect: str = "",
         is_effective: Optional[int] = None,
         note: str = "",
     ):
-        """将用药与化验结果关联。"""
+        """将用药与观测记录（化验/检查）关联。"""
         with db.get_conn(self.db_path) as conn:
             db.insert_medication_effect(
                 conn,
                 medication_id=medication_id,
-                lab_result_id=lab_result_id,
+                observation_id=observation_id,
                 expected_effect=expected_effect,
                 actual_effect=actual_effect,
                 is_effective=is_effective,
                 note=note,
             )
-            log.info("关联用药(ID=%d)与化验结果(ID=%d)", medication_id, lab_result_id)
+            log.info("关联用药(ID=%d)与观测记录(ID=%d)", medication_id, observation_id)
 
-    def link_to_eye_exam(
-        self,
-        medication_id: int,
-        eye_exam_id: int,
-        expected_effect: str,
-        actual_effect: str = "",
-        is_effective: Optional[int] = None,
-        note: str = "",
-    ):
-        """将用药与眼科检查关联。"""
-        with db.get_conn(self.db_path) as conn:
-            db.insert_medication_effect(
-                conn,
-                medication_id=medication_id,
-                eye_exam_id=eye_exam_id,
-                expected_effect=expected_effect,
-                actual_effect=actual_effect,
-                is_effective=is_effective,
-                note=note,
-            )
-            log.info("关联用药(ID=%d)与眼科检查(ID=%d)", medication_id, eye_exam_id)
+    def link_to_lab_result(self, medication_id: int, lab_result_id: int, **kwargs):
+        """向后兼容别名 → link_to_observation。"""
+        self.link_to_observation(medication_id, lab_result_id, **kwargs)
+
+    def link_to_eye_exam(self, medication_id: int, eye_exam_id: int, **kwargs):
+        """向后兼容别名 → link_to_observation。"""
+        self.link_to_observation(medication_id, eye_exam_id, **kwargs)
 
     def analyze_medication_effect(
         self,
@@ -139,17 +125,17 @@ class MedicationTracker:
 
             # 查询用药前的指标
             before_rows = conn.execute(
-                """SELECT date, value, unit FROM lab_results
-                   WHERE item_name = ? AND date < ?
-                   ORDER BY date DESC LIMIT 3""",
+                """SELECT obs_date AS date, value_num AS value, unit FROM medical_observations
+                   WHERE item_name = ? AND obs_date < ?
+                   ORDER BY obs_date DESC LIMIT 3""",
                 (indicator, start_date),
             ).fetchall()
 
             # 查询用药后的指标
             after_rows = conn.execute(
-                """SELECT date, value, unit FROM lab_results
-                   WHERE item_name = ? AND date >= ?
-                   ORDER BY date ASC LIMIT 3""",
+                """SELECT obs_date AS date, value_num AS value, unit FROM medical_observations
+                   WHERE item_name = ? AND obs_date >= ?
+                   ORDER BY obs_date ASC LIMIT 3""",
                 (indicator, start_date),
             ).fetchall()
 

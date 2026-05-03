@@ -17,8 +17,9 @@ from superhealth.database import (
     get_conn,
     query_lab_trends_unified,
     query_multiple_metrics,
-    query_user_profiles,
+    _OBSERVATION_METRICS,
 )
+from superhealth.user_profile import read_profile
 
 # ─── 基础查询 ─────────────────────────────────────────────────────────
 
@@ -75,17 +76,33 @@ def load_exercises(days: int = 90) -> pd.DataFrame:
 
 @st.cache_data(ttl=0)
 def load_lab_results(item_name: Optional[str] = None) -> pd.DataFrame:
-    """读取化验结果，可按指标名称过滤。"""
+    """读取化验/检查结果（medical_observations），列名与旧 lab_results 表兼容。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
         if item_name:
             df = pd.read_sql_query(
-                "SELECT * FROM lab_results WHERE item_name = ? ORDER BY date",
+                """SELECT o.id, o.obs_date AS date,
+                          COALESCE(d.doc_type, 'medical_observations') AS source,
+                          o.item_name, o.item_code,
+                          o.value_num AS value, o.unit,
+                          o.ref_low, o.ref_high, o.is_abnormal, o.note
+                   FROM medical_observations o
+                   LEFT JOIN medical_documents d ON o.document_id = d.id
+                   WHERE o.item_name = ? AND o.value_num IS NOT NULL
+                   ORDER BY o.obs_date""",
                 conn,
                 params=(item_name,),
             )
         else:
             df = pd.read_sql_query(
-                "SELECT * FROM lab_results ORDER BY date",
+                """SELECT o.id, o.obs_date AS date,
+                          COALESCE(d.doc_type, 'medical_observations') AS source,
+                          o.item_name, o.item_code,
+                          o.value_num AS value, o.unit,
+                          o.ref_low, o.ref_high, o.is_abnormal, o.note
+                   FROM medical_observations o
+                   LEFT JOIN medical_documents d ON o.document_id = d.id
+                   WHERE o.value_num IS NOT NULL
+                   ORDER BY o.obs_date""",
                 conn,
             )
     if not df.empty:
@@ -93,28 +110,127 @@ def load_lab_results(item_name: Optional[str] = None) -> pd.DataFrame:
     return df
 
 
+# ── item_name 模糊匹配辅助 ─────────────────────────────────────────
+
+_EYE_ITEM_MAP: dict[str, list[str]] = {
+    "od_iop":      ["右眼眼压", "眼压(右)", "IOP右", "OD IOP", "右眼 IOP"],
+    "os_iop":      ["左眼眼压", "眼压(左)", "IOP左", "OS IOP", "左眼 IOP"],
+    "od_cd_ratio": ["右眼杯盘比", "C/D(右)", "OD C/D", "右眼CDR"],
+    "os_cd_ratio": ["左眼杯盘比", "C/D(左)", "OS C/D", "左眼CDR"],
+    "od_vision":   ["右眼视力", "右裸眼视力"],
+    "os_vision":   ["左眼视力", "左裸眼视力"],
+    "fundus_note": ["眼底", "Fundus"],
+}
+
+# annual_checkup 字段 → item_name 候选（用于 pivot）
+_CHECKUP_ITEM_MAP: dict[str, list[str]] = {
+    k: cfg["item_names"] for k, cfg in _OBSERVATION_METRICS.items()
+}
+_CHECKUP_ITEM_MAP.update({
+    "height_cm":    ["身高"],
+    "weight_kg":    ["体重"],
+    "bmi":          ["BMI", "体质指数"],
+    "systolic":     ["收缩压"],
+    "diastolic":    ["舒张压"],
+    "heart_rate":   ["心率"],
+    "wbc":          ["白细胞", "WBC"],
+    "rbc":          ["红细胞", "RBC"],
+    "hgb":          ["血红蛋白", "HGB", "Hb"],
+    "hct":          ["红细胞压积", "HCT"],
+    "plt":          ["血小板", "PLT"],
+    "t3":           ["三碘甲状腺原氨酸", "T3"],
+    "t4":           ["甲状腺素", "T4"],
+    "afp":          ["甲胎蛋白", "AFP"],
+    "cea":          ["癌胚抗原", "CEA"],
+    "t_psa":        ["总前列腺特异性抗原", "T-PSA", "PSA"],
+    "nse":          ["神经元特异性烯醇化酶", "NSE"],
+    "cyfra211":     ["细胞角蛋白片段", "CYFRA21-1"],
+    "vision_right": ["右眼视力", "右裸眼视力"],
+    "vision_left":  ["左眼视力", "左裸眼视力"],
+    "iop_right":    ["右眼眼压", "眼压(右)"],
+    "iop_left":     ["左眼眼压", "眼压(左)"],
+    "thyroid_note": ["甲状腺超声", "甲状腺"],
+    "lung_note":    ["肺部", "胸部X光", "CT胸部"],
+    "ultrasound_note": ["腹部超声", "腹部彩超", "超声小结"],
+    "abnormal_summary": ["异常小结", "阳性结果"],
+})
+
+
+def _pivot_observations_to_row(obs_list: list[dict], col_map: dict[str, list[str]]) -> dict:
+    """把 observation 列表按 item_name → column 映射 pivot 成宽格式行。"""
+    row: dict = {}
+    for col, names in col_map.items():
+        for obs in obs_list:
+            name = obs.get("item_name", "")
+            if any(n.lower() in name.lower() or name.lower() in n.lower() for n in names):
+                row[col] = obs.get("value_num") if obs.get("value_num") is not None else obs.get("value_text")
+                break
+    return row
+
+
 @st.cache_data(ttl=0)
 def load_eye_exams() -> pd.DataFrame:
-    """读取所有眼科检查记录。"""
+    """读取眼科检查记录，以检查日期为行，od_iop/os_iop/od_cd_ratio/os_cd_ratio 为列。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
-        df = pd.read_sql_query(
-            "SELECT * FROM eye_exams ORDER BY date",
-            conn,
-        )
-    if not df.empty:
+        rows = conn.execute(
+            """SELECT o.obs_date AS date, o.item_name, o.laterality,
+                      o.value_num, o.value_text,
+                      d.doctor, d.institution AS hospital
+               FROM medical_observations o
+               LEFT JOIN medical_documents d ON o.document_id = d.id
+               WHERE o.category = 'eye'
+               ORDER BY o.obs_date, o.document_id"""
+        ).fetchall()
+
+    if not rows:
+        return pd.DataFrame()
+
+    from collections import defaultdict
+    by_date: dict = defaultdict(list)
+    meta: dict = {}
+    for r in rows:
+        by_date[r["date"]].append(dict(r))
+        meta[r["date"]] = {"doctor": r["doctor"], "hospital": r["hospital"]}
+
+    records = []
+    for dt, obs_list in sorted(by_date.items()):
+        wide = _pivot_observations_to_row(obs_list, _EYE_ITEM_MAP)
+        wide["date"] = dt
+        wide.update(meta[dt])
+        records.append(wide)
+
+    df = pd.DataFrame(records)
+    if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"])
     return df
 
 
 @st.cache_data(ttl=0)
 def load_annual_checkups() -> pd.DataFrame:
-    """读取所有年度体检记录。"""
+    """读取年度体检记录，每次体检一行，列名与旧 annual_checkups 表兼容。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
-        df = pd.read_sql_query(
-            "SELECT * FROM annual_checkups ORDER BY checkup_date",
-            conn,
-        )
-    if not df.empty:
+        docs = conn.execute(
+            """SELECT id, doc_date AS checkup_date, institution
+               FROM medical_documents WHERE doc_type = 'annual_checkup'
+               ORDER BY doc_date"""
+        ).fetchall()
+        if not docs:
+            return pd.DataFrame()
+
+        records = []
+        for doc in docs:
+            obs = conn.execute(
+                "SELECT item_name, value_num, value_text FROM medical_observations WHERE document_id = ?",
+                (doc["id"],),
+            ).fetchall()
+            obs_list = [dict(r) for r in obs]
+            wide = _pivot_observations_to_row(obs_list, _CHECKUP_ITEM_MAP)
+            wide["checkup_date"] = doc["checkup_date"]
+            wide["institution"] = doc["institution"]
+            records.append(wide)
+
+    df = pd.DataFrame(records)
+    if not df.empty and "checkup_date" in df.columns:
         df["checkup_date"] = pd.to_datetime(df["checkup_date"])
     return df
 
@@ -166,10 +282,14 @@ def get_latest_daily_health() -> dict:
 
 
 def get_lab_latest(item_name: str) -> Optional[dict]:
-    """获取某化验指标最新一次记录。"""
+    """获取某化验指标最新一次记录（从 medical_observations 查询）。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
         row = conn.execute(
-            "SELECT * FROM lab_results WHERE item_name = ? ORDER BY date DESC LIMIT 1",
+            """SELECT id, obs_date AS date, item_name, item_code,
+                      value_num AS value, unit, ref_low, ref_high, is_abnormal, note
+               FROM medical_observations
+               WHERE item_name = ? AND value_num IS NOT NULL
+               ORDER BY obs_date DESC LIMIT 1""",
             (item_name,),
         ).fetchone()
     return dict(row) if row else None
@@ -190,7 +310,7 @@ def get_upcoming_appointments(within_days: int = 14) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-# ─── 统一化验趋势查询（合并 lab_results + annual_checkups）────────────────
+# ─── 统一化验趋势查询（medical_observations）────────────────────────────
 
 
 @st.cache_data(ttl=0)
@@ -241,12 +361,8 @@ def load_multiple_unified_trends(
 
 
 def get_available_lab_metrics() -> dict[str, str]:
-    """获取可用的化验指标列表。
-
-    Returns:
-        字典，key 为指标代码，value 为中文名称
-    """
-    return {
+    """获取可用的化验指标列表（基于 _OBSERVATION_METRICS）。"""
+    labels = {
         "uric_acid": "尿酸",
         "creatinine": "肌酐",
         "urea": "尿素",
@@ -256,7 +372,14 @@ def get_available_lab_metrics() -> dict[str, str]:
         "total_cholesterol": "总胆固醇",
         "alt": "丙氨酸氨基转移酶 (ALT)",
         "ast": "天冬氨酸氨基转移酶 (AST)",
+        "ggt": "γ-谷氨酰转肽酶 (GGT)",
+        "cystatin_c": "胱抑素C",
+        "fasting_glucose": "空腹血糖",
+        "hba1c": "糖化血红蛋白 (HbA1c)",
+        "tsh": "促甲状腺激素 (TSH)",
+        "iop": "眼压 (IOP)",
     }
+    return {k: v for k, v in labels.items() if k in _OBSERVATION_METRICS}
 
 
 # ─── AI 摘要 ─────────────────────────────────────────────────────────
@@ -454,8 +577,7 @@ def load_learned_preferences(preference_type: str | None = None, status: str | N
 @st.cache_data(ttl=0)
 def get_user_profile() -> dict:
     """读取用户档案（身高/性别/出生日期等），返回 {key: value} 字典。"""
-    with get_conn(DEFAULT_DB_PATH) as conn:
-        return query_user_profiles(conn)
+    return read_profile()
 
 
 # ─── 历史回顾专用查询 ─────────────────────────────────────────────────

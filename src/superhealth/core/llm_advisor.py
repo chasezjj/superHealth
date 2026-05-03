@@ -197,13 +197,11 @@ class BaseHealthAdvisor(ABC):
         # 活跃阶段性目标
         if profile.active_goals:
             parts.append("\n### 当前阶段性目标（所有建议须优先服务于以下目标）\n")
-            priority_labels = {1: "P1 主要", 2: "P2 次要", 3: "P3 辅助"}
             direction_labels = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
             for g in profile.active_goals:
-                p_label = priority_labels.get(g.get("priority"), f"P{g.get('priority')}")  # type: ignore[arg-type]
                 d_label = direction_labels.get(g.get("direction"), g.get("direction"))  # type: ignore[arg-type]
                 metric_label = g.get("metric_label", g.get("metric_key"))
-                line = f"- **{p_label}**：{g['name']}（{metric_label}，方向：{d_label}"
+                line = f"- {g['name']}（{metric_label}，方向：{d_label}"
                 if g.get("baseline_value") is not None:
                     line += f"，基线：{g['baseline_value']:.1f}"
                 if g.get("target_value") is not None:
@@ -255,11 +253,19 @@ class BaseHealthAdvisor(ABC):
         recent_feedback: list | None = None,
         is_weekday: bool | None = None,
         calendar_summary: dict | None = None,
+        user_context: str = "",
     ) -> str:
         """构建用户 prompt（当日数据摘要 + 近7天运动历史 + 近期反馈 + 天气 + 建议请求）。"""
         from datetime import datetime
 
-        lines = [f"今日日期：{reference_date}"]
+        lines = []
+        if user_context and user_context.strip():
+            lines.append("【用户特别说明 — 最高优先级】")
+            lines.append(user_context.strip())
+            lines.append("请确保以上用户说明在建议中得到充分体现，其优先级高于运动多样性、天气、日历等所有其他因素。")
+            lines.append("")
+
+        lines.append(f"今日日期：{reference_date}")
 
         # 添加工作日/休息日信息
         dt = datetime.strptime(reference_date, "%Y-%m-%d")
@@ -447,6 +453,7 @@ class BaseHealthAdvisor(ABC):
         recent_exercises: list | None = None,
         recent_feedback: list | None = None,
         calendar_summary: dict | None = None,
+        user_context: str = "",
     ) -> dict:
         """调用 LLM API 生成个性化建议，返回解析后的 JSON dict。"""
         if reference_date is None:
@@ -468,6 +475,7 @@ class BaseHealthAdvisor(ABC):
             recent_feedback,
             is_weekday,
             calendar_summary,
+            user_context,
         )
 
         max_retries = 3

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -16,31 +17,15 @@ from typing import Any, Optional
 
 from superhealth.models import DailyHealth
 
+log = logging.getLogger(__name__)
+
 DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "health.db"
 
-# Whitelist of allowed columns for kwargs-based insert functions
-_EYE_EXAM_COLS = {
-    "date", "doctor", "hospital", "od_vision", "od_iop", "od_cd_ratio",
-    "os_vision", "os_iop", "os_cd_ratio", "fundus_note", "prescription", "note",
-}
-_KIDNEY_ULTRASOUND_COLS = {
-    "date", "right_length_cm", "right_finding", "left_length_cm", "left_finding",
-    "right_ureter", "left_ureter", "prostate", "conclusion", "doctor",
-}
-_ANNUAL_CHECKUP_COLS = {
-    "checkup_date", "institution", "height_cm", "weight_kg", "bmi", "systolic",
-    "diastolic", "heart_rate", "uric_acid", "creatinine", "urea", "cystatin_c",
-    "total_cholesterol", "triglyceride", "ldl_c", "hdl_c", "fasting_glucose",
-    "hba1c", "alt", "ast", "ggt", "wbc", "rbc", "hgb", "hct", "plt", "t3", "t4",
-    "tsh", "afp", "cea", "t_psa", "nse", "cyfra211", "vision_right", "vision_left",
-    "iop_right", "iop_left", "cup_disc_ratio", "thyroid_note", "lung_note",
-    "ultrasound_note", "abnormal_summary", "raw_text",
-}
 _MEDICATION_COLS = {
     "name", "condition", "start_date", "end_date", "dosage", "frequency", "note",
 }
 _MEDICATION_EFFECT_COLS = {
-    "medication_id", "lab_result_id", "eye_exam_id", "checkup_date",
+    "medication_id", "observation_id", "checkup_date",
     "expected_effect", "actual_effect", "is_effective", "note",
 }
 
@@ -97,7 +82,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH):
                 if "duplicate column name" in str(e).lower():
                     continue
                 raise
-    print(f"数据库已初始化：{db_path}")
+    log.info("数据库已初始化：%s", db_path)
 
 
 # ─── DailyHealth CRUD ────────────────────────────────────────────────
@@ -337,59 +322,6 @@ def query_date_range(conn: sqlite3.Connection, start: str, end: str) -> list[dic
     return results
 
 
-# ─── 化验结果 CRUD ───────────────────────────────────────────────────
-
-
-def insert_lab_result(
-    conn: sqlite3.Connection,
-    *,
-    date: str,
-    source: str,
-    item_name: str,
-    item_code: str | None = None,
-    value: float | None = None,
-    unit: str | None = None,
-    ref_low: float | None = None,
-    ref_high: float | None = None,
-    is_abnormal: int = 0,
-    note: str | None = None,
-):
-    conn.execute(
-        """
-        INSERT INTO lab_results (date, source, item_name, item_code,
-            value, unit, ref_low, ref_high, is_abnormal, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (date, source, item_name, item_code, value, unit, ref_low, ref_high, is_abnormal, note),
-    )
-
-
-# ─── 眼科检查 CRUD ──────────────────────────────────────────────────
-
-
-def insert_eye_exam(conn: sqlite3.Connection, **kwargs):
-    _validate_kwargs(kwargs, _EYE_EXAM_COLS, "insert_eye_exam")
-    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
-    placeholders = ", ".join(["?"] * len(kwargs))
-    conn.execute(
-        f"INSERT INTO eye_exams ({cols}) VALUES ({placeholders})",
-        tuple(kwargs.values()),
-    )
-
-
-# ─── 肾脏彩超 CRUD ──────────────────────────────────────────────────
-
-
-def insert_kidney_ultrasound(conn: sqlite3.Connection, **kwargs):
-    _validate_kwargs(kwargs, _KIDNEY_ULTRASOUND_COLS, "insert_kidney_ultrasound")
-    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
-    placeholders = ", ".join(["?"] * len(kwargs))
-    conn.execute(
-        f"INSERT INTO kidney_ultrasounds ({cols}) VALUES ({placeholders})",
-        tuple(kwargs.values()),
-    )
-
-
 # ─── 体征 CRUD ──────────────────────────────────────────────────────
 
 
@@ -439,22 +371,6 @@ def query_vitals_by_date(conn: sqlite3.Connection, date_str: str) -> Optional[di
     }
 
 
-# ─── 年度体检 CRUD ──────────────────────────────────────────────────
-
-
-def upsert_annual_checkup(conn: sqlite3.Connection, **kwargs):
-    """写入或更新一次年度体检记录（以 checkup_date 为唯一键）。"""
-    _validate_kwargs(kwargs, _ANNUAL_CHECKUP_COLS, "upsert_annual_checkup")
-    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
-    placeholders = ", ".join(["?"] * len(kwargs))
-    updates = ", ".join(f'"{k}"=excluded."{k}"' for k in kwargs if k != "checkup_date")
-    conn.execute(
-        f"INSERT INTO annual_checkups ({cols}) VALUES ({placeholders})"
-        f" ON CONFLICT(checkup_date) DO UPDATE SET {updates}",
-        tuple(kwargs.values()),
-    )
-
-
 # ─── 用药 CRUD ──────────────────────────────────────────────────────
 
 
@@ -495,8 +411,7 @@ def insert_medication_effect(conn: sqlite3.Connection, **kwargs):
 
     kwargs 可包含:
     - medication_id: 药物ID（必填）
-    - lab_result_id: 关联的化验结果ID
-    - eye_exam_id: 关联的眼科检查ID
+    - observation_id: 关联的 medical_observations ID
     - checkup_date: 关联的体检日期
     - expected_effect: 预期效果描述
     - actual_effect: 实际观察效果
@@ -531,13 +446,13 @@ def query_lab_results_with_medication(
     返回包含化验结果和关联用药信息的列表。
     """
     rows = conn.execute(
-        """SELECT lr.*, m.name as med_name, m.start_date as med_start,
+        """SELECT o.*, m.name as med_name, m.start_date as med_start,
                   me.expected_effect, me.is_effective
-           FROM lab_results lr
-           LEFT JOIN medication_effects me ON lr.id = me.lab_result_id
+           FROM medical_observations o
+           LEFT JOIN medication_effects me ON o.id = me.observation_id
            LEFT JOIN medications m ON me.medication_id = m.id
-           WHERE lr.item_name = ?
-           ORDER BY lr.date""",
+           WHERE o.item_name = ?
+           ORDER BY o.obs_date""",
         (item_name,),
     ).fetchall()
     return [dict(row) for row in rows]
@@ -1043,8 +958,8 @@ def insert_goal_progress(
 
 
 def query_active_goals(conn: sqlite3.Connection) -> list[dict]:
-    """查询所有 active 目标，按 priority 排序。"""
-    rows = conn.execute("SELECT * FROM goals WHERE status = 'active' ORDER BY priority").fetchall()
+    """查询所有 active 目标，按 start_date 排序。"""
+    rows = conn.execute("SELECT * FROM goals WHERE status = 'active' ORDER BY start_date DESC").fetchall()
     return [dict(row) for row in rows]
 
 
@@ -1061,95 +976,104 @@ def query_goal_progress_range(
     return [dict(row) for row in rows]
 
 
-# ─── 肝肾指标统一趋势查询（合并 lab_results + annual_checkups）──────────────────
+# ─── 统一化验/观测趋势查询（基于 medical_observations）──────────────
 
-# 指标映射配置：lab_results 查询条件 → annual_checkups 列名
-_LIVER_KIDNEY_METRICS: dict[str, dict[str, Any]] = {
+# 指标映射配置：metric_key → 可能的 item_name 列表（LIKE 模糊匹配）
+_OBSERVATION_METRICS: dict[str, dict[str, Any]] = {
     "uric_acid": {
-        "lab_item_names": ["尿酸", "血尿酸", "UA"],
-        "checkup_column": "uric_acid",
+        "item_names": ["尿酸", "血尿酸", "UA"],
         "unit": "μmol/L",
         "ref_low": 208,
         "ref_high": 428,
     },
     "creatinine": {
-        "lab_item_names": ["肌酐", "血肌酐", "Cr", "CREA"],
-        "checkup_column": "creatinine",
+        "item_names": ["肌酐", "血肌酐", "Cr", "CREA"],
         "unit": "μmol/L",
         "ref_low": 44,
         "ref_high": 133,
     },
     "urea": {
-        "lab_item_names": ["尿素", "尿素氮", "BUN"],
-        "checkup_column": "urea",
+        "item_names": ["尿素", "尿素氮", "BUN"],
         "unit": "mmol/L",
         "ref_low": 2.6,
         "ref_high": 7.5,
     },
     "ldl_c": {
-        "lab_item_names": ["低密度脂蛋白胆固醇", "LDL-C", "LDL"],
-        "checkup_column": "ldl_c",
+        "item_names": ["低密度脂蛋白胆固醇", "LDL-C", "LDL"],
         "unit": "mmol/L",
         "ref_low": None,
         "ref_high": 3.4,
     },
     "triglyceride": {
-        "lab_item_names": ["甘油三酯", "TG", "血脂-甘油三酯"],
-        "checkup_column": "triglyceride",
+        "item_names": ["甘油三酯", "TG", "血脂-甘油三酯"],
         "unit": "mmol/L",
         "ref_low": None,
         "ref_high": 1.7,
     },
     "hdl_c": {
-        "lab_item_names": ["高密度脂蛋白胆固醇", "HDL-C", "HDL"],
-        "checkup_column": "hdl_c",
+        "item_names": ["高密度脂蛋白胆固醇", "HDL-C", "HDL"],
         "unit": "mmol/L",
         "ref_low": 1.0,
         "ref_high": None,
     },
     "total_cholesterol": {
-        "lab_item_names": ["总胆固醇", "TC", "Chol"],
-        "checkup_column": "total_cholesterol",
+        "item_names": ["总胆固醇", "TC", "Chol"],
         "unit": "mmol/L",
         "ref_low": None,
         "ref_high": 5.2,
     },
     "alt": {
-        "lab_item_names": ["丙氨酸氨基转移酶", "ALT", "GPT", "谷丙转氨酶"],
-        "checkup_column": "alt",
+        "item_names": ["丙氨酸氨基转移酶", "ALT", "GPT", "谷丙转氨酶"],
         "unit": "U/L",
         "ref_low": None,
         "ref_high": 50,
     },
     "ast": {
-        "lab_item_names": ["天冬氨酸氨基转移酶", "AST", "GOT", "谷草转氨酶"],
-        "checkup_column": "ast",
+        "item_names": ["天冬氨酸氨基转移酶", "AST", "GOT", "谷草转氨酶"],
         "unit": "U/L",
         "ref_low": None,
         "ref_high": 40,
     },
     "ggt": {
-        "lab_item_names": [
-            "γ-谷氨酰转肽酶",
-            "GGT",
-            "谷氨酰转肽酶",
-            "r-谷氨酰转肽酶",
-            "r-GT",
-            "γ-GT",
-        ],
-        "checkup_column": "ggt",
+        "item_names": ["γ-谷氨酰转肽酶", "GGT", "谷氨酰转肽酶", "r-谷氨酰转肽酶", "r-GT", "γ-GT"],
         "unit": "U/L",
         "ref_low": None,
         "ref_high": 60,
     },
     "cystatin_c": {
-        "lab_item_names": ["胱抑素C", "Cystatin C", "Cys-C"],
-        "checkup_column": "cystatin_c",
+        "item_names": ["胱抑素C", "Cystatin C", "Cys-C"],
         "unit": "mg/L",
         "ref_low": None,
         "ref_high": 1.03,
     },
+    "fasting_glucose": {
+        "item_names": ["空腹血糖", "血糖", "Glucose", "GLU"],
+        "unit": "mmol/L",
+        "ref_low": 3.9,
+        "ref_high": 6.1,
+    },
+    "hba1c": {
+        "item_names": ["糖化血红蛋白", "HbA1c", "HBA1C"],
+        "unit": "%",
+        "ref_low": None,
+        "ref_high": 6.5,
+    },
+    "tsh": {
+        "item_names": ["促甲状腺激素", "TSH"],
+        "unit": "μIU/mL",
+        "ref_low": 0.27,
+        "ref_high": 4.2,
+    },
+    "iop": {
+        "item_names": ["眼压", "IOP", "右眼眼压", "左眼眼压"],
+        "unit": "mmHg",
+        "ref_low": None,
+        "ref_high": 21,
+    },
 }
+
+# Keep old name as alias for external callers
+_LIVER_KIDNEY_METRICS = _OBSERVATION_METRICS
 
 
 def query_lab_trends_unified(
@@ -1158,7 +1082,7 @@ def query_lab_trends_unified(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> list[dict]:
-    """统一查询肝肾/血脂指标时间序列（合并 lab_results + annual_checkups）。
+    """统一查询医学观测指标时间序列（从 medical_observations 表查询）。
 
     Args:
         metric_key: 指标代码，如 'uric_acid', 'creatinine', 'ldl_c' 等
@@ -1169,112 +1093,66 @@ def query_lab_trends_unified(
         按日期排序的时间序列列表，每项包含:
         - date: 日期 YYYY-MM-DD
         - value: 数值
-        - source: 'lab_results' 或 'annual_checkups'
+        - source: doc_type（来自关联文档）
         - unit: 单位
         - ref_low: 参考下限
         - ref_high: 参考上限
-        - is_abnormal: 是否异常（基于参考范围判断，体检数据自动计算）
+        - is_abnormal: 是否异常
     """
-    config = _LIVER_KIDNEY_METRICS.get(metric_key)
+    config = _OBSERVATION_METRICS.get(metric_key)
     if not config:
         raise ValueError(
-            f"未知的指标代码: {metric_key}，支持的指标: {list(_LIVER_KIDNEY_METRICS.keys())}"
+            f"未知的指标代码: {metric_key}，支持的指标: {list(_OBSERVATION_METRICS.keys())}"
         )
 
-    # 构建 lab_results 的查询条件
-    item_names = config["lab_item_names"]
-    name_conditions = " OR ".join(["item_name LIKE ?"] * len(item_names))
-    lab_params = [f"%{n}%" for n in item_names]
+    item_names: list[str] = config["item_names"]
+    name_conditions = " OR ".join(["o.item_name LIKE ?"] * len(item_names))
+    params: list[Any] = [f"%{n}%" for n in item_names]
 
-    date_where = ""
-    date_params = []
+    date_filter = ""
     if start_date:
-        date_where += " AND date >= ?"
-        date_params.append(start_date)
+        date_filter += " AND o.obs_date >= ?"
+        params.append(start_date)
     if end_date:
-        date_where += " AND date <= ?"
-        date_params.append(end_date)
+        date_filter += " AND o.obs_date <= ?"
+        params.append(end_date)
 
-    # 查询 lab_results
-    lab_sql = f"""
-        SELECT date, value, unit, ref_low, ref_high, is_abnormal
-        FROM lab_results
-        WHERE ({name_conditions}){date_where}
-        ORDER BY date
+    sql = f"""
+        SELECT o.obs_date AS date, o.value_num AS value,
+               o.unit, o.ref_low, o.ref_high, o.is_abnormal,
+               COALESCE(d.doc_type, 'medical_observations') AS source
+        FROM medical_observations o
+        LEFT JOIN medical_documents d ON o.document_id = d.id
+        WHERE ({name_conditions})
+          AND o.value_num IS NOT NULL
+          {date_filter}
+        ORDER BY o.obs_date
     """
-    lab_rows = conn.execute(lab_sql, lab_params + date_params).fetchall()
+    rows = conn.execute(sql, params).fetchall()
 
-    # 查询 annual_checkups
-    checkup_col = config["checkup_column"]
-    checkup_date_where = ""
-    checkup_params = []
-    if start_date:
-        checkup_date_where += " AND checkup_date >= ?"
-        checkup_params.append(start_date)
-    if end_date:
-        checkup_date_where += " AND checkup_date <= ?"
-        checkup_params.append(end_date)
-
-    checkup_sql = f"""
-        SELECT checkup_date as date, {checkup_col} as value
-        FROM annual_checkups
-        WHERE {checkup_col} IS NOT NULL{checkup_date_where}
-        ORDER BY checkup_date
-    """
-    checkup_rows = conn.execute(checkup_sql, checkup_params).fetchall()
-
-    # 合并结果
-    results = []
     ref_low = config.get("ref_low")
     ref_high = config.get("ref_high")
     unit = config.get("unit", "")
 
-    for row in lab_rows:
+    results = []
+    for row in rows:
         val = row["value"]
-        if val is None:
-            continue
         row_ref_low = row["ref_low"] if row["ref_low"] is not None else ref_low
         row_ref_high = row["ref_high"] if row["ref_high"] is not None else ref_high
-        is_abnormal = row["is_abnormal"]
-        # 如果数据库没标记异常，自动计算
+        is_abnormal = row["is_abnormal"] or 0
         if is_abnormal == 0 and row_ref_low is not None and row_ref_high is not None:
             is_abnormal = 1 if (val < row_ref_low or val > row_ref_high) else 0
-
         results.append(
             {
                 "date": row["date"],
                 "value": val,
-                "source": "lab_results",
+                "source": row["source"],
                 "unit": row["unit"] or unit,
                 "ref_low": row_ref_low,
                 "ref_high": row_ref_high,
                 "is_abnormal": is_abnormal,
             }
         )
-
-    for row in checkup_rows:
-        val = row["value"]
-        if val is None:
-            continue
-        # 体检数据自动判断异常
-        is_abnormal = 0
-        if ref_low is not None and ref_high is not None:
-            is_abnormal = 1 if (val < ref_low or val > ref_high) else 0
-
-        results.append(
-            {
-                "date": row["date"],
-                "value": val,
-                "source": "annual_checkups",
-                "unit": unit,
-                "ref_low": ref_low,
-                "ref_high": ref_high,
-                "is_abnormal": is_abnormal,
-            }
-        )
-
-    # 按日期排序
-    results.sort(key=lambda x: x["date"])
     return results
 
 
@@ -1342,33 +1220,6 @@ def query_failed_sync_dates(
     return [row["date"] for row in rows]
 
 
-# ─── 用户档案 CRUD ──────────────────────────────────────────────────
-
-
-def upsert_user_profile(conn: sqlite3.Connection, key: str, value: str):
-    """写入/更新一条用户档案（幂等）。"""
-    conn.execute(
-        """
-        INSERT INTO user_profile (key, value, updated_at)
-        VALUES (?, ?, datetime('now','localtime'))
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-        """,
-        (key, value),
-    )
-
-
-def query_user_profile(conn: sqlite3.Connection, key: str) -> Optional[str]:
-    """查询单条用户档案值。"""
-    row = conn.execute("SELECT value FROM user_profile WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else None
-
-
-def query_user_profiles(conn: sqlite3.Connection) -> dict:
-    """查询全部用户档案，返回 {key: value} 字典。"""
-    rows = conn.execute("SELECT key, value FROM user_profile").fetchall()
-    return {row["key"]: row["value"] for row in rows}
-
-
 # ─── Garmin 数据管理 CRUD ─────────────────────────────────────────────
 
 
@@ -1409,3 +1260,156 @@ def update_exercise(
         f"UPDATE exercises SET {set_clause} WHERE id = ?",
         values,
     )
+
+
+# ─── 通用医疗文档/观测/病情 CRUD ─────────────────────────────────────
+
+ALLOWED_DOC_TYPES = {
+    "genetic", "annual_checkup", "outpatient", "imaging",
+    "lab", "discharge", "other",
+}
+ALLOWED_OBS_CATEGORIES = {
+    "lab", "vital", "imaging", "eye", "ultrasound", "ecg", "genetic", "other",
+}
+ALLOWED_CONDITION_STATUS = {"active", "resolved", "suspected"}
+
+_DOCUMENT_COLS = {
+    "doc_date", "doc_type", "institution", "department", "doctor",
+    "title", "original_path", "markdown_path", "extracted_json",
+    "confirmed_at", "note",
+}
+_OBSERVATION_COLS = {
+    "document_id", "obs_date", "category", "item_name", "item_code",
+    "body_site", "laterality", "value_num", "value_text", "unit",
+    "ref_low", "ref_high", "is_abnormal", "note",
+}
+
+
+def insert_medical_document(conn: sqlite3.Connection, **kwargs) -> int:
+    """写入一条医疗文档元数据，返回新行 id。
+
+    必填: doc_date, doc_type, markdown_path
+    """
+    _validate_kwargs(kwargs, _DOCUMENT_COLS, "insert_medical_document")
+    if kwargs.get("doc_type") not in ALLOWED_DOC_TYPES:
+        raise ValueError(
+            f"insert_medical_document: doc_type must be one of {ALLOWED_DOC_TYPES}, "
+            f"got {kwargs.get('doc_type')!r}"
+        )
+    for required in ("doc_date", "doc_type", "markdown_path"):
+        if not kwargs.get(required):
+            raise ValueError(f"insert_medical_document: {required} is required")
+    cols = ", ".join(f'"{k}"' for k in kwargs.keys())
+    placeholders = ", ".join(["?"] * len(kwargs))
+    cur = conn.execute(
+        f"INSERT INTO medical_documents ({cols}) VALUES ({placeholders})",
+        tuple(kwargs.values()),
+    )
+    return cur.lastrowid or 0
+
+
+def bulk_insert_observations(
+    conn: sqlite3.Connection, observations: list[dict]
+) -> int:
+    """批量写入观测项，返回插入行数。每项 dict 至少包含 obs_date/category/item_name。"""
+    inserted = 0
+    for obs in observations:
+        _validate_kwargs(obs, _OBSERVATION_COLS, "bulk_insert_observations")
+        if obs.get("category") not in ALLOWED_OBS_CATEGORIES:
+            raise ValueError(
+                f"bulk_insert_observations: category must be one of {ALLOWED_OBS_CATEGORIES}, "
+                f"got {obs.get('category')!r}"
+            )
+        for required in ("obs_date", "category", "item_name"):
+            if not obs.get(required):
+                raise ValueError(f"bulk_insert_observations: {required} is required")
+        cols = ", ".join(f'"{k}"' for k in obs.keys())
+        placeholders = ", ".join(["?"] * len(obs))
+        conn.execute(
+            f"INSERT INTO medical_observations ({cols}) VALUES ({placeholders})",
+            tuple(obs.values()),
+        )
+        inserted += 1
+    return inserted
+
+
+def upsert_medical_condition(
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    status: str = "active",
+    icd10_code: str | None = None,
+    onset_date: str | None = None,
+    source_document_id: int | None = None,
+    notes: str | None = None,
+    follow_up_months: int | None = None,
+    follow_up_hospital: str | None = None,
+    follow_up_department: str | None = None,
+) -> None:
+    """以 name 为唯一键写入或更新病情。"""
+    if status not in ALLOWED_CONDITION_STATUS:
+        raise ValueError(
+            f"upsert_medical_condition: status must be one of {ALLOWED_CONDITION_STATUS}, "
+            f"got {status!r}"
+        )
+    conn.execute(
+        """
+        INSERT INTO medical_conditions
+            (name, icd10_code, status, onset_date, source_document_id, notes,
+             follow_up_months, follow_up_hospital, follow_up_department, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        ON CONFLICT(name) DO UPDATE SET
+            icd10_code          = COALESCE(excluded.icd10_code, medical_conditions.icd10_code),
+            status              = excluded.status,
+            onset_date          = COALESCE(excluded.onset_date, medical_conditions.onset_date),
+            source_document_id  = COALESCE(excluded.source_document_id, medical_conditions.source_document_id),
+            notes               = COALESCE(excluded.notes, medical_conditions.notes),
+            follow_up_months    = COALESCE(excluded.follow_up_months, medical_conditions.follow_up_months),
+            follow_up_hospital  = COALESCE(excluded.follow_up_hospital, medical_conditions.follow_up_hospital),
+            follow_up_department = COALESCE(excluded.follow_up_department, medical_conditions.follow_up_department),
+            updated_at          = datetime('now','localtime')
+        """,
+        (name, icd10_code, status, onset_date, source_document_id, notes,
+         follow_up_months, follow_up_hospital, follow_up_department),
+    )
+
+
+def query_medical_documents(
+    conn: sqlite3.Connection,
+    *,
+    doc_type: str | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """查询医疗文档列表，按 doc_date 倒序。"""
+    if doc_type:
+        rows = conn.execute(
+            """SELECT * FROM medical_documents WHERE doc_type = ?
+               ORDER BY doc_date DESC, id DESC LIMIT ?""",
+            (doc_type, limit),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT * FROM medical_documents
+               ORDER BY doc_date DESC, id DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def query_observations_by_document(
+    conn: sqlite3.Connection, document_id: int
+) -> list[dict]:
+    """查询某个文档下的全部观测项。"""
+    rows = conn.execute(
+        "SELECT * FROM medical_observations WHERE document_id = ? ORDER BY id",
+        (document_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def query_active_conditions(conn: sqlite3.Connection) -> list[dict]:
+    """查询当前 active 病情清单。"""
+    rows = conn.execute(
+        "SELECT * FROM medical_conditions WHERE status = 'active' ORDER BY name"
+    ).fetchall()
+    return [dict(row) for row in rows]

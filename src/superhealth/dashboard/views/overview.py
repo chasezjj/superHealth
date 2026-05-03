@@ -6,7 +6,6 @@ from datetime import date
 
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     DEFAULT_DB_PATH,
     get_latest_ai_report,
@@ -193,27 +192,22 @@ def render():
         st.session_state.report_generate_error = ""
     if "report_just_generated" not in st.session_state:
         st.session_state.report_just_generated = False
+    if "user_daily_context" not in st.session_state:
+        st.session_state.user_daily_context = ""
+    if "user_daily_context_input" not in st.session_state:
+        st.session_state.user_daily_context_input = st.session_state.user_daily_context
+    if "pending_user_context" not in st.session_state:
+        st.session_state.pending_user_context = ""
+    st.session_state.user_daily_context = st.session_state.get("user_daily_context_input", "")
 
     report_dir = DEFAULT_DB_PATH.parent / "data" / "daily-reports"
     today_str = date.today().isoformat()
     today_report_file = report_dir / f"{today_str}-advanced-daily-report.md"
     has_today_report = today_report_file.exists()
 
-    col_title, col_btn = st.columns([3, 1])
-    with col_title:
-        st.subheader("AI 建议摘要")
-    with col_btn:
-        btn_label = "重新生成高级健康日报" if has_today_report else "生成高级健康日报"
-        btn_help = "调用 LLM 分析今日健康数据并生成个性化建议" if not has_today_report else "重新调用 LLM 生成今日健康日报"
-
-        if st.session_state.generating_report:
-            st.button("⏳ 生成中...", disabled=True, key="generating_daily_report_btn")
-        else:
-            if st.button(btn_label, key="generate_daily_report_btn", help=btn_help):
-                st.session_state.generating_report = True
-                st.session_state.report_generate_error = ""
-                st.session_state.report_just_generated = False
-                st.rerun()
+    st.subheader("AI 建议摘要")
+    btn_label = "重新生成高级健康日报" if has_today_report else "生成高级健康日报"
+    btn_help = "调用 LLM 分析今日健康数据并生成个性化建议" if not has_today_report else "重新调用 LLM 生成今日健康日报"
 
     if st.session_state.generating_report:
         with st.spinner("正在调用 LLM 分析今日健康数据，请稍候..."):
@@ -221,7 +215,12 @@ def render():
                 from superhealth.reports.advanced_daily_report import AdvancedDailyReportGenerator
 
                 generator = AdvancedDailyReportGenerator(db_path=DEFAULT_DB_PATH)
-                report_text = generator.generate_report(today_str, save=True, test_mode=False)
+                report_text = generator.generate_report(
+                    today_str,
+                    save=True,
+                    test_mode=False,
+                    user_context=st.session_state.get("pending_user_context", ""),
+                )
                 st.session_state.generating_report = False
                 if "未找到 Garmin 数据" in report_text:
                     st.session_state.report_generate_error = "今日暂无 Garmin 数据，无法生成日报。请先去系统配置同步 Garmin 数据。"
@@ -250,4 +249,30 @@ def render():
             with st.expander("查看完整 AI 建议报告"):
                 st.markdown(full_report)
 
-    disclaimer.render()
+    user_daily_context = st.text_area(
+        "告诉 AI 今天的特殊情况（可选）",
+        placeholder="例如：今天下午有重要会议，晚上有聚餐，不方便剧烈运动...",
+        key="user_daily_context_input",
+        height=80,
+    )
+    st.session_state.user_daily_context = user_daily_context
+    _, col_generate = st.columns([3, 1])
+    with col_generate:
+        if st.session_state.generating_report:
+            st.button(
+                "⏳ 生成中...",
+                disabled=True,
+                key="generating_daily_report_btn",
+                use_container_width=True,
+            )
+        elif st.button(
+            btn_label,
+            key="generate_daily_report_btn",
+            help=btn_help,
+            use_container_width=True,
+        ):
+            st.session_state.generating_report = True
+            st.session_state.report_generate_error = ""
+            st.session_state.report_just_generated = False
+            st.session_state.pending_user_context = st.session_state.user_daily_context
+            st.rerun()

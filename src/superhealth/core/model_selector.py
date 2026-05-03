@@ -196,13 +196,12 @@ class ModelSelector:
                     model_info = self._GUIDE_MODEL_MAP.get(guide_key)
                     if model_info:
                         name, label = model_info
-                        priority_label = {1: "P1", 2: "P2", 3: "P3"}.get(goal.get("priority") or 0, "")
                         selected.append(
                             ModelSpec(
                                 name=name,
                                 label=label,
                                 guide_key=guide_key,
-                                reason=f"目标驱动激活（{priority_label}目标：{goal.get('name', '')}）",
+                                reason=f"目标驱动激活（{goal.get('name', '')}）",
                             )
                         )
                         existing_keys.add(guide_key)

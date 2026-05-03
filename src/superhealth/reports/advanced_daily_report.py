@@ -195,7 +195,13 @@ class AdvancedDailyReportGenerator:
             "risk_alerts": combined_risk,
         }
 
-    def generate_report(self, day_str: str, save: bool = True, test_mode: bool = False) -> str:
+    def generate_report(
+        self,
+        day_str: str,
+        save: bool = True,
+        test_mode: bool = False,
+        user_context: str = "",
+    ) -> str:
         """生成高级日报。"""
         lines = []
 
@@ -208,12 +214,17 @@ class AdvancedDailyReportGenerator:
         vitals_today = self._load_vitals_today(day_str)
 
         # ── Layer 1: 天气采集 ──
-        weather_obj = fetch_weather(target_date=day_str, db_path=self.db_path)
-        weather_data = weather_obj.to_dict() if weather_obj else None
+        cfg = load_config()
+        weather_data = None
+        if cfg.weather.is_complete():
+            weather_obj = fetch_weather(target_date=day_str, db_path=self.db_path)
+            weather_data = weather_obj.to_dict() if weather_obj else None
 
         # ── Layer 1: 日历采集 ──
-        _cal_obj = fetch_calendar(day_str, db_path=self.db_path)
-        calendar_summary: dict | None = _cal_obj.to_dict() if _cal_obj else None
+        calendar_summary: dict | None = None
+        if cfg.outlook.is_complete():
+            _cal_obj = fetch_calendar(day_str, db_path=self.db_path)
+            calendar_summary = _cal_obj.to_dict() if _cal_obj else None
 
         # ── Layer 2: 健康画像 + 模型选择 ──
         profile = self.profile_builder.build(day_str)
@@ -242,6 +253,7 @@ class AdvancedDailyReportGenerator:
             recent_exercises=recent_exercises,
             recent_feedback=recent_feedback,
             calendar_summary=calendar_summary,
+            user_context=user_context,
         )
 
         if self.advisor_mode == "baichuan_only":
@@ -262,21 +274,34 @@ class AdvancedDailyReportGenerator:
         # ── 预写 recommendation_feedback（Phase 1：存储 LLM 推荐内容）──
         if not test_mode:
             report_id = f"{day_str}-advanced-daily-report"
+
+            # 聚合所有建议到一个字段
+            parts = []
             exercise_advice = llm_advice.get("exercise", {})
-            recommendation_content = (
-                exercise_advice.get("specific") or exercise_advice.get("type") or ""
-            )
-            # 获取 LLM 判断的建议类型（exercise/recovery/rest），默认 exercise
-            rec_type = llm_advice.get("recommendation_type", "exercise")
-            if rec_type not in ("exercise", "recovery", "rest"):
-                rec_type = "exercise"
+            exercise_text = exercise_advice.get("specific") or exercise_advice.get("type") or ""
+            if exercise_text:
+                parts.append(exercise_text)
+            recovery_advice = llm_advice.get("recovery", {})
+            recovery_actions = recovery_advice.get("actions", []) if isinstance(recovery_advice, dict) else []
+            if recovery_actions:
+                parts.append("【恢复建议】" + "；".join(recovery_actions))
+            lifestyle = llm_advice.get("lifestyle", [])
+            if lifestyle:
+                parts.append("【生活建议】" + "；".join(lifestyle))
+            recommendation_content = "\n\n".join(parts)
+
+            # rec_type 二值判断：有运动内容 → exercise，否则 → non-exercise
+            has_exercise = bool(exercise_text)
+            raw_type = llm_advice.get("recommendation_type", "exercise")
+            rec_type = "exercise" if (has_exercise or raw_type == "exercise") else "non-exercise"
+
             try:
                 with self._get_conn() as conn:
+                    # 幂等检查：只按 date 查，一天只保留一条记录
                     existing = conn.execute(
                         "SELECT id, user_feedback FROM recommendation_feedback "
-                        "WHERE date = ? AND recommendation_type = ? "
-                        "ORDER BY id DESC LIMIT 1",
-                        (day_str, rec_type),
+                        "WHERE date = ? ORDER BY id DESC LIMIT 1",
+                        (day_str,),
                     ).fetchone()
                     if not existing:
                         db.insert_recommendation_feedback(
@@ -290,12 +315,12 @@ class AdvancedDailyReportGenerator:
                             tracked_metrics=None,
                         )
                     elif existing["user_feedback"] is None:
-                        # 用户尚未提交反馈，用最新 LLM 结果覆盖 recommendation_content
+                        # 用户尚未提交反馈，用最新 LLM 结果覆盖（含 recommendation_type）
                         conn.execute(
                             "UPDATE recommendation_feedback "
-                            "SET recommendation_content = ?, report_id = ? "
+                            "SET recommendation_content = ?, report_id = ?, recommendation_type = ? "
                             "WHERE id = ?",
-                            (recommendation_content, report_id, existing["id"]),
+                            (recommendation_content, report_id, rec_type, existing["id"]),
                         )
             except Exception as e:
                 log.warning("预写 recommendation_feedback 失败: %s", e)

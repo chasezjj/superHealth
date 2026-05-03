@@ -134,8 +134,6 @@
 | `plotly` | >=5.20 | 交互式图表 |
 | `pandas` | >=2.0 | 数据处理 |
 | `scikit-learn` | >=1.4 | 趋势预测（线性回归） |
-| `reportlab` | >=4.0 | PDF 报告生成 |
-| `kaleido` | >=0.2.1 | Plotly 图片导出 |
 | `python-dateutil` | >=2.8 | 日期解析 |
 | `tomli` / `tomli-w` | >=2.0 / >=1.0 | TOML 配置读写（Python < 3.11 回退） |
 | `exchangelib` | >=5.0 | Exchange/Outlook 日历集成（EWS 协议） |
@@ -269,7 +267,6 @@ src/superhealth/
     │   ├── lab_results.py         #   化验趋势（统一视图/单指标/多指标对比）
     │   ├── correlations.py        #   相关性分析（热力图 + 散点回归）
     │   ├── prediction.py          #   预测分析（4 种风险评分 + 趋势外推 + 就医推荐）
-    │   └── export.py              #   报告导出（自定义章节 + PDF 生成）
     ├── components/                # 可复用组件
     │   ├── charts.py              #   Plotly 图表封装
     │   └── gauges.py              #   圆形仪表盘 + 因子贡献条
@@ -408,7 +405,6 @@ Streamlit 应用，入口 `streamlit run src/superhealth/dashboard/app.py --serv
 | **化验趋势** | 三种视图（合并/单指标/多指标对比）。尿酸/肌酐/eGFR/肝功能/血脂/眼压。含就医时间线 | lab_results, eye_exams, annual_checkups |
 | **相关性分析** | 指标间热力图 + 散点回归图。可选 HRV/BB/睡眠/血压/体重/体脂/步数/运动时长/压力 | daily_health, vitals, exercises |
 | **预测分析** | 4 种风险评分（尿酸/高血压/高血脂/高血糖）+ 7 天趋势预测 + 就医时机推荐 | vitals, lab_results, weather, daily_health |
-| **报告导出** | 自定义章节选择 → PDF 生成（含图表+表格+AI 建议）。可填姓名和就诊医院 | 全表 |
 
 ### 9.2 预测模型
 
@@ -745,7 +741,7 @@ python -c "from superhealth.database import init_db; init_db()"
 | 4 | 智能健康决策引擎（画像+模型选择+LLM+天气+高级日报） | ✅ 完成 | 2026-04-04 |
 | 5 | 自动反馈闭环（compliance+效果追踪+策略学习） | ✅ 完成 | 2026-04-04 |
 | 6 | 就医提醒系统（3 种病情+自动推算+微信通知） | ✅ 完成 | 2026-04-06 |
-| 7 | Web 可视化仪表盘（8 页面+5 预测模型+PDF 导出） | ✅ 完成 | 2026-04-10 |
+| 7 | Web 可视化仪表盘（8 页面+5 预测模型） | ✅ 完成 | 2026-04-10 |
 | 8 | 阶段性目标子系统（目标存储+指标追踪+目标注入+Dashboard） | ✅ 完成 | 2026-04-21 |
 | 9 | Dashboard 概览 KPI 增强 + 策略学习鲁棒性提升 + 日历采集集成 | ✅ 完成 | 2026-04-27 |
 | 10 | 因果推断引擎 + N-of-1 干预实验框架 + 流水线差异追踪 + Dashboard 实验页面 | ✅ 完成 | 2026-04-30 |

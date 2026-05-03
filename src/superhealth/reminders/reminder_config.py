@@ -20,7 +20,7 @@ class ReminderRule:
     source_table: str  # 查询最近一次记录的表名
     date_field: str  # 该表中日期字段名
     item_filter: dict = field(default_factory=dict)
-    # item_filter 用于 lab_results 等需按字段值过滤的场景
+    # item_filter 用于 medical_observations 等需按字段值过滤的场景
     # 例：{"item_name": "尿酸"} → WHERE item_name = '尿酸'
 
 
@@ -31,8 +31,9 @@ REMINDER_RULES: list[ReminderRule] = [
         hospital=None,
         department=None,
         interval_months=3,
-        source_table="eye_exams",
-        date_field="date",
+        source_table="medical_observations",
+        date_field="obs_date",
+        item_filter={"category": "eye"},
     ),
     ReminderRule(
         condition="hyperuricemia",
@@ -40,8 +41,8 @@ REMINDER_RULES: list[ReminderRule] = [
         hospital=None,
         department=None,
         interval_months=6,
-        source_table="lab_results",
-        date_field="date",
+        source_table="medical_observations",
+        date_field="obs_date",
         item_filter={"item_name": "尿酸"},
     ),
     ReminderRule(
@@ -50,7 +51,8 @@ REMINDER_RULES: list[ReminderRule] = [
         hospital=None,
         department=None,
         interval_months=12,
-        source_table="annual_checkups",
-        date_field="checkup_date",
+        source_table="medical_documents",
+        date_field="doc_date",
+        item_filter={"doc_type": "annual_checkup"},
     ),
 ]

@@ -21,6 +21,7 @@ from superhealth.collectors import send_garmin_report
 from superhealth.collectors.fetch_garmin import GarminAuthError
 from superhealth.collectors.outlook_collector import fetch_calendar
 from superhealth.config import get_db_path
+from superhealth.config import load as _load_config
 from superhealth.feedback import auto_feedback
 from superhealth.feedback.effect_tracker import EffectTracker
 from superhealth.feedback.strategy_learner import StrategyLearner
@@ -145,13 +146,16 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
     fetch_and_log(day)
 
     # 3.5 拉取当天日历（缓存到 DB，供日报使用）
-    try:
-        fetch_calendar(day, db_path=DB_PATH)
-        _log_step(day, "calendar_fetch", True)
-        log.info("日历采集完成: %s", day)
-    except Exception as e:
-        _log_step(day, "calendar_fetch", False, str(e)[:500])
-        log.warning("日历采集失败: %s", e)
+    if _load_config().outlook.is_complete():
+        try:
+            fetch_calendar(day, db_path=DB_PATH)
+            _log_step(day, "calendar_fetch", True)
+            log.info("日历采集完成: %s", day)
+        except Exception as e:
+            _log_step(day, "calendar_fetch", False, str(e)[:500])
+            log.warning("日历采集失败: %s", e)
+    else:
+        log.info("Outlook 未配置，跳过日历采集")
 
     # 4. 生成高级日报
     generator = AdvancedDailyReportGenerator(db_path=DB_PATH)
@@ -164,19 +168,19 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
     _run_step(yesterday, "auto_feedback", auto_feedback.run, yesterday, DB_PATH)
 
     # 7. 效果追踪与策略学习（早上直接执行，不依赖 nightly_update）
+    effects: list = []
     try:
         tracker = EffectTracker(DB_PATH)
         effects = tracker.track_recent_exercises(days=14, run_date=day)
         tracker.write_effects_to_db(effects, run_date=day)
         _log_step(day, "effect_tracker", True)
-        log.info("effect_tracker 完成，写回 %d 条", len(effects))
+        log.info("效果追踪完成，近 14 天匹配 %d 条运动记录并写回", len(effects))
     except Exception as e:
         _log_step(day, "effect_tracker", False, str(e)[:500])
         log.warning("EffectTracker 失败: %s", e)
 
     try:
         learner = StrategyLearner(DB_PATH)
-        # 加载活跃目标以传递给策略学习器
         active_goals = []
         try:
             goal_mgr_tmp = GoalManager(DB_PATH)
@@ -184,7 +188,7 @@ def run_pipeline(test_mode: bool = False, retry_days: int = 7, target_date: str 
                 active_goals = goal_mgr_tmp.get_active_goals(conn)
         except Exception:
             pass
-        result = learner.run_full_analysis(days=180, active_goals=active_goals)
+        result = learner.run_full_analysis(days=180, active_goals=active_goals, precomputed_effects=effects)
         _log_step(day, "strategy_learner", True)
         if result.get("preference_updates"):
             log.info("策略更新 %s", result["preference_updates"])

@@ -779,13 +779,10 @@ class StrategyLearner:
         end = date.today().isoformat()
         start = (datetime.fromisoformat(end) - timedelta(days=days)).isoformat()[:10]
 
-        # 获取主目标的 goal_id（P1 目标优先）
+        # 获取当前活跃目标的 goal_id
         primary_goal_id = None
         if active_goals:
-            primary = next((g for g in active_goals if g.get("priority") == 1), None)
-            if primary is None:
-                primary = active_goals[0]
-            primary_goal_id = primary.get("id")
+            primary_goal_id = active_goals[0].get("id")
 
         try:
             with self._get_conn() as conn:
@@ -886,15 +883,26 @@ class StrategyLearner:
         except Exception:
             return []
 
-    def run_full_analysis(self, days: int = 30, active_goals: list[dict] | None = None) -> dict:
-        """运行完整的学习流程并返回分析报告。"""
-        try:
-            recent_effects = self.effect_tracker.track_recent_exercises(days=days)
-            self.effect_tracker.write_effects_to_db(recent_effects)
-            log.info("已追踪并写回 %d 条运动效果", len(recent_effects))
-        except Exception as e:
-            log.warning("效果追踪失败: %s", e)
-            recent_effects = []
+    def run_full_analysis(
+        self,
+        days: int = 30,
+        active_goals: list[dict] | None = None,
+        precomputed_effects: list | None = None,
+    ) -> dict:
+        """运行完整的学习流程并返回分析报告。
+
+        precomputed_effects: 若由调用方已完成效果追踪并写库，直接传入结果可跳过重复计算。
+        """
+        if precomputed_effects is not None:
+            recent_effects = precomputed_effects
+        else:
+            try:
+                recent_effects = self.effect_tracker.track_recent_exercises(days=days)
+                self.effect_tracker.write_effects_to_db(recent_effects)
+                log.info("效果追踪完成，写回 %d 条", len(recent_effects))
+            except Exception as e:
+                log.warning("效果追踪失败: %s", e)
+                recent_effects = []
 
         updates = self.learn_from_recent_feedback(days=days, active_goals=active_goals)
         self._evaluate_existing_preferences(recent_days=30)

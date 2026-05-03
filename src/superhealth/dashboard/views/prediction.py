@@ -6,7 +6,6 @@ from datetime import date
 
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import chart_trend_prediction
 from superhealth.dashboard.components.gauges import factor_bar_chart, risk_gauge, score_label
 from superhealth.dashboard.data_loader import (
@@ -329,5 +328,3 @@ def render():
                     st.error(r["msg"])
                 else:
                     st.warning(r["msg"])
-
-    disclaimer.render()

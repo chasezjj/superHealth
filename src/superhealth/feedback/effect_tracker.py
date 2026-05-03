@@ -947,16 +947,16 @@ class EffectTracker:
             if hrv_status == "LOW":
                 poor_post_count += 1
 
+        override_msg = None
         if negative_signals > 0 and excellent_post_count >= 4 and poor_post_count == 0:
             skipped_negative += negative_signals
-            first_day = sorted(post_data.keys())[0]
-            details_by_day[first_day].append(
-                f"override: {negative_signals} 个 negative 信号因 post 指标全面优秀被排除（高基线天花板效应）"
-            )
+            override_msg = f"override: {negative_signals} 个 negative 信号因 post 指标全面优秀被排除（高基线天花板效应）"
             negative_signals = 0
 
-        # 按天顺序合并，保证 day+1 在前、day+2 在后
+        # 按天顺序合并，保证 day+1 在前、day+2 在后；override 摘要置于末尾
         details = [d for dk in sorted(details_by_day.keys()) for d in details_by_day[dk]]
+        if override_msg:
+            details.append(override_msg)
 
         # 计算复合恢复评分 (CRS)，contaminated 日不参与
         composite_scores: dict[str, float | None] = {}
@@ -1127,18 +1127,30 @@ class EffectTracker:
                         continue
                     to_write.append(r)
 
+                written = 0
+                unmatched = 0
                 for result in to_write:
                     tracked_json = json.dumps(result, ensure_ascii=False, default=str)
-                    conn.execute(
+                    cursor = conn.execute(
                         """UPDATE recommendation_feedback
                            SET tracked_metrics = ?
-                           WHERE date = ? AND recommendation_type = 'exercise'""",
+                           WHERE date = ?""",
                         (tracked_json, result["exercise_date"]),
                     )
+                    if cursor.rowcount and cursor.rowcount > 0:
+                        written += 1
+                    else:
+                        unmatched += 1
+                        log.warning(
+                            "追踪指标写入失败：未找到 date=%s 的 feedback 记录",
+                            result["exercise_date"],
+                        )
                 if to_write:
                     log.info(
-                        "写回追踪指标 %d 条（锁定 %d 条）",
+                        "写回追踪指标 %d 条（成功 %d 条，未匹配 %d 条，锁定 %d 条）",
                         len(to_write),
+                        written,
+                        unmatched,
                         len(candidates) - len(to_write),
                     )
         except Exception as e:
@@ -1202,7 +1214,7 @@ class EffectTracker:
                JOIN goals g ON g.id = gp.goal_id
                WHERE gp.date = ?
                  AND g.status = 'active'
-               ORDER BY g.priority ASC""",
+               ORDER BY g.start_date DESC""",
             (ref_date,),
         ).fetchall()
 

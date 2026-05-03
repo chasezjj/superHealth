@@ -122,24 +122,26 @@ class TestQueryDateRange:
         assert results[0]["date"] == "2025-04-01"
 
 
-class TestLabResultCRUD:
-    def test_insert_lab_result(self, tmp_db):
+class TestObservationCRUD:
+    def test_bulk_insert_observations(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_lab_result(
-                conn,
-                date="2025-01-01",
-                source="hospital",
-                item_name="尿酸",
-                item_code="UA",
-                value=420,
-                unit="μmol/L",
-                ref_low=208,
-                ref_high=428,
-                is_abnormal=0,
-            )
-            rows = conn.execute("SELECT * FROM lab_results").fetchall()
+            obs = [
+                {
+                    "obs_date": "2025-01-01",
+                    "category": "lab",
+                    "item_name": "尿酸",
+                    "item_code": "UA",
+                    "value_num": 420,
+                    "unit": "μmol/L",
+                    "ref_low": 208,
+                    "ref_high": 428,
+                    "is_abnormal": 0,
+                }
+            ]
+            db.bulk_insert_observations(conn, obs)
+            rows = conn.execute("SELECT * FROM medical_observations").fetchall()
         assert len(rows) == 1
-        assert rows[0]["value"] == 420
+        assert rows[0]["value_num"] == 420
 
 
 class TestWeatherCRUD:
@@ -208,23 +210,27 @@ class TestSyncLog:
 
 
 class TestUserProfile:
-    def test_upsert_and_query(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            db.upsert_user_profile(conn, "height_cm", "175")
-            val = db.query_user_profile(conn, "height_cm")
-        assert val == "175"
+    def test_write_and_read(self, tmp_path, monkeypatch):
+        import superhealth.user_profile as up
+        monkeypatch.setattr(up, "PROFILE_DIR", tmp_path)
+        monkeypatch.setattr(up, "PROFILE_PATH", tmp_path / "profile.md")
+        up.write_profile({"height_cm": "175", "gender": "male"})
+        result = up.read_profile()
+        assert result["height_cm"] == "175"
+        assert result["gender"] == "male"
 
-    def test_query_missing(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            val = db.query_user_profile(conn, "nonexistent")
-        assert val is None
+    def test_read_missing(self, tmp_path, monkeypatch):
+        import superhealth.user_profile as up
+        monkeypatch.setattr(up, "PROFILE_PATH", tmp_path / "profile.md")
+        assert up.read_profile() == {}
 
-    def test_query_all_profiles(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            db.upsert_user_profile(conn, "key1", "val1")
-            db.upsert_user_profile(conn, "key2", "val2")
-            profiles = db.query_user_profiles(conn)
-        assert profiles == {"key1": "val1", "key2": "val2"}
+    def test_write_multiple_keys(self, tmp_path, monkeypatch):
+        import superhealth.user_profile as up
+        monkeypatch.setattr(up, "PROFILE_DIR", tmp_path)
+        monkeypatch.setattr(up, "PROFILE_PATH", tmp_path / "profile.md")
+        up.write_profile({"birthdate": "1985-06-15", "gender": "female", "height_cm": "162.0"})
+        result = up.read_profile()
+        assert result == {"birthdate": "1985-06-15", "gender": "female", "height_cm": "162.0"}
 
 
 class TestGoalProgress:
@@ -246,19 +252,28 @@ class TestGoalProgress:
 class TestQueryLabTrends:
     def test_unified_trends(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_lab_result(conn, date="2025-01-01", source="hospital", item_name="尿酸", value=400, unit="μmol/L")
-            db.insert_lab_result(conn, date="2025-02-01", source="hospital", item_name="尿酸", value=420, unit="μmol/L")
-            db.upsert_annual_checkup(conn, checkup_date="2025-03-01", uric_acid=430)
+            doc_id = db.insert_medical_document(
+                conn, doc_date="2025-03-01", doc_type="annual_checkup",
+                markdown_path="data/checkup-reports/2025-03-01.md"
+            )
+            obs = [
+                {"obs_date": "2025-01-01", "category": "lab", "item_name": "尿酸", "value_num": 400, "unit": "μmol/L"},
+                {"obs_date": "2025-02-01", "category": "lab", "item_name": "尿酸", "value_num": 420, "unit": "μmol/L"},
+                {"obs_date": "2025-03-01", "category": "lab", "item_name": "尿酸", "value_num": 430, "document_id": doc_id},
+            ]
+            db.bulk_insert_observations(conn, obs)
             results = db.query_lab_trends_unified(conn, "uric_acid")
         assert len(results) == 3
         sources = {r["source"] for r in results}
-        assert "lab_results" in sources
-        assert "annual_checkups" in sources
+        assert "annual_checkup" in sources
 
     def test_multiple_metrics(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_lab_result(conn, date="2025-01-01", source="hospital", item_name="尿酸", value=400)
-            db.insert_lab_result(conn, date="2025-01-01", source="hospital", item_name="肌酐", value=80)
+            obs = [
+                {"obs_date": "2025-01-01", "category": "lab", "item_name": "尿酸", "value_num": 400},
+                {"obs_date": "2025-01-01", "category": "lab", "item_name": "肌酐", "value_num": 80},
+            ]
+            db.bulk_insert_observations(conn, obs)
             multi = db.query_multiple_metrics(conn, ["uric_acid", "creatinine"])
         assert len(multi) == 2
         assert "uric_acid" in multi

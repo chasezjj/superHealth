@@ -1,7 +1,12 @@
 """就医预约推算器（Phase 6）
 
-根据各病情规则，从数据库最近一次检查记录自动推算下次应诊日期，
-并将结果写入 appointments 表（幂等，可反复执行）。
+从 medical_conditions 表读取全部 active 病情，按各自的 follow_up_months /
+follow_up_department 字段自动推算下次应诊日期，并写入 appointments 表（幂等）。
+
+新增或修改病情的复诊配置：
+    UPDATE medical_conditions
+    SET follow_up_months=3, follow_up_department='眼科', follow_up_hospital='同仁医院'
+    WHERE name='原发性开角型青光眼';
 
 使用方式：
     python -m superhealth.reminders.appointment_scheduler
@@ -11,93 +16,146 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from datetime import date
-from typing import Optional
+from dataclasses import asdict, is_dataclass
+from typing import Any
 
 from dateutil.relativedelta import relativedelta
 
-from superhealth.database import get_conn, upsert_appointment
-from superhealth.reminders.reminder_config import REMINDER_RULES, ReminderRule
+from superhealth.database import get_conn, query_active_conditions, upsert_appointment
+from superhealth.reminders.reminder_config import REMINDER_RULES
+
+log = logging.getLogger(__name__)
 
 
-def _query_last_exam_date(conn, rule: ReminderRule) -> tuple[Optional[str], Optional[int]]:
-    """查询某规则对应数据表的最近一条记录，返回 (date_str, record_id)。"""
-    table = rule.source_table
-    date_col = rule.date_field
+def _as_mapping(obj: Any) -> dict:
+    if isinstance(obj, dict):
+        return obj
+    if is_dataclass(obj):
+        return asdict(obj)
+    return dict(obj)
 
-    if rule.item_filter:
-        # 带字段过滤（如 lab_results 按 item_name 筛选）
-        filter_col, filter_val = next(iter(rule.item_filter.items()))
+
+def _query_last_exam_date(conn, cond: dict) -> tuple[str | None, int | None]:
+    """返回与该病情相关的最近一次就诊日期和文档 ID。
+
+    优先按 follow_up_department 匹配 medical_documents；
+    无 department 时退回使用 source_document_id（首次诊断文档）。
+    """
+    cond = _as_mapping(cond)
+
+    source_table = cond.get("source_table")
+    date_field = cond.get("date_field")
+    if source_table and date_field:
+        if source_table not in {"medical_observations", "medical_documents"}:
+            return None, None
+        filters = cond.get("item_filter") or {}
+        where = []
+        params: list[Any] = []
+        for key, value in filters.items():
+            where.append(f"{key} = ?")
+            params.append(value)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        id_field = "id"
         row = conn.execute(
-            f"SELECT id, {date_col} FROM {table} WHERE {filter_col} = ? ORDER BY {date_col} DESC LIMIT 1",
-            (filter_val,),
+            f"SELECT {id_field}, {date_field} FROM {source_table} {where_sql} "
+            f"ORDER BY {date_field} DESC, {id_field} DESC LIMIT 1",
+            params,
         ).fetchone()
-    else:
-        row = conn.execute(
-            f"SELECT id, {date_col} FROM {table} ORDER BY {date_col} DESC LIMIT 1"
-        ).fetchone()
+        if row:
+            return row[date_field], row[id_field]
 
-    if row:
-        return row[date_col], row["id"]
+    dept = cond.get("follow_up_department")
+    if dept:
+        row = conn.execute(
+            "SELECT id, doc_date FROM medical_documents WHERE department = ? ORDER BY doc_date DESC, id DESC LIMIT 1",
+            (dept,),
+        ).fetchone()
+        if row:
+            return row["doc_date"], row["id"]
+
+    # 退回：用记录病情来源的诊断文档日期
+    src_id = cond.get("source_document_id")
+    if src_id:
+        row = conn.execute(
+            "SELECT id, doc_date FROM medical_documents WHERE id = ?",
+            (src_id,),
+        ).fetchone()
+        if row:
+            return row["doc_date"], row["id"]
+
     return None, None
 
 
 def refresh_appointments(dry_run: bool = False) -> list[dict]:
-    """推算所有病情的下次应诊日期，写入 appointments 表。
-
-    返回推算结果列表（无论 dry_run 与否均返回）。
-    """
+    """推算所有 active 病情的下次应诊日期，写入 appointments 表。"""
     results = []
     with get_conn() as conn:
-        for rule in REMINDER_RULES:
-            last_date_str, exam_id = _query_last_exam_date(conn, rule)
+        conditions = query_active_conditions(conn) or REMINDER_RULES
+        if not conditions:
+            log.info("[scheduler] medical_conditions 表无 active 记录")
+            return results
+
+        for cond_obj in conditions:
+            cond = _as_mapping(cond_obj)
+            name = cond.get("name") or cond.get("condition")
+            label = cond.get("label") or name
+
+            interval_months = cond.get("follow_up_months") or cond.get("interval_months")
+            if not interval_months:
+                log.info("[scheduler] %s：未配置复诊间隔（follow_up_months），跳过", name)
+                continue
+
+            last_date_str, doc_id = _query_last_exam_date(conn, cond)
             if last_date_str is None:
-                print(f"[scheduler] {rule.label}：数据库无记录，跳过")
+                log.info("[scheduler] %s：无相关就诊记录，跳过", name)
                 continue
 
             last_date = date.fromisoformat(last_date_str)
-            due = last_date + relativedelta(months=rule.interval_months)
+            due = last_date + relativedelta(months=interval_months)
             days_left = (due - date.today()).days
 
             result = {
-                "condition": rule.condition,
-                "label": rule.label,
-                "hospital": rule.hospital,
-                "department": rule.department,
+                "condition": name,
+                "label": label,
+                "hospital": cond.get("follow_up_hospital") or cond.get("hospital"),
+                "department": cond.get("follow_up_department") or cond.get("department"),
                 "last_exam_date": last_date_str,
                 "due_date": due.isoformat(),
                 "days_left": days_left,
-                "interval_months": rule.interval_months,
-                "source_exam_id": exam_id,
-                "source_table": rule.source_table,
+                "interval_months": interval_months,
+                "source_exam_id": doc_id,
+                "source_table": cond.get("source_table") or "medical_documents",
             }
             results.append(result)
 
             if dry_run:
-                print(
-                    f"[dry-run] {rule.label}：上次 {last_date_str} → "
-                    f"下次 {due.isoformat()}（距今 {days_left} 天）"
+                log.info(
+                    "[dry-run] %s：上次 %s → 下次 %s（距今 %d 天）",
+                    name, last_date_str, due.isoformat(), days_left,
                 )
             else:
                 upsert_appointment(
                     conn,
-                    condition=rule.condition,
-                    hospital=rule.hospital,
-                    department=rule.department,
+                    condition=name,
+                    hospital=cond.get("follow_up_hospital") or cond.get("hospital"),
+                    department=cond.get("follow_up_department") or cond.get("department"),
                     due_date=due.isoformat(),
-                    interval_months=rule.interval_months,
-                    source_exam_id=exam_id,
-                    source_table=rule.source_table,
+                    interval_months=interval_months,
+                    source_exam_id=doc_id,
+                    source_table=cond.get("source_table") or "medical_documents",
                 )
-                print(
-                    f"[scheduler] {rule.label}：上次 {last_date_str} → "
-                    f"下次 {due.isoformat()}（距今 {days_left} 天）已写入"
+                log.info(
+                    "[scheduler] %s：上次 %s → 下次 %s（距今 %d 天）已写入",
+                    name, last_date_str, due.isoformat(), days_left,
                 )
 
     return results
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(description="推算并写入就医预约日期")
     parser.add_argument("--dry-run", action="store_true", help="只打印结果，不写入数据库")
     args = parser.parse_args()

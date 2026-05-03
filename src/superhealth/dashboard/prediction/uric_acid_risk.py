@@ -136,7 +136,9 @@ def _check_kidney_stones(df_lab: pd.DataFrame) -> tuple[bool, str]:
 
     with get_conn(DEFAULT_DB_PATH) as conn:
         row = conn.execute(
-            "SELECT conclusion FROM kidney_ultrasounds ORDER BY date DESC LIMIT 1"
+            """SELECT value_text AS conclusion FROM medical_observations
+               WHERE category='ultrasound' AND body_site='kidney' AND value_text IS NOT NULL
+               ORDER BY obs_date DESC LIMIT 1"""
         ).fetchone()
     if row and row["conclusion"]:
         conclusion = row["conclusion"]

@@ -1,4 +1,8 @@
-"""配置管理：读取 ~/.superhealth/config.toml，环境变量优先。
+"""配置管理：读取 ~/.superhealth/config.toml。
+
+优先级统一为：config.toml > 环境变量 > 内置默认值。
+即页面/文件中显式填写的值不会被环境变量覆盖；环境变量仅在 toml 对应字段
+缺失或为空字符串时作为 fallback 生效。
 
 配置文件示例（~/.superhealth/config.toml）：
 
@@ -16,14 +20,14 @@
     host      = "0.0.0.0"             # 监听地址（默认全部接口）
     port      = 5000                  # 监听端口
 
-环境变量覆盖（优先级最高）：
+环境变量 fallback（仅在 toml 字段为空时生效）：
     HEALTHY_GARMIN_EMAIL / HEALTHY_GARMIN_PASSWORD
     HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET
     HEALTHY_VITALS_API_TOKEN / HEALTHY_VITALS_HOST / HEALTHY_VITALS_PORT
     SUPERHEALTH_DB                       # 数据库路径覆盖
 
     注：HEALTHY_* 前缀为历史遗留，新增配置建议使用 SUPERHEALTH_* 前缀。
-    SUPERHEALTH_DB 优先于默认的 health.db 路径。
+    SUPERHEALTH_DB 仍以 env 为准（用于运行时切库，无对应 toml 字段）。
 """
 
 from __future__ import annotations
@@ -121,7 +125,8 @@ class VitalsConfig:
 @dataclass
 class ClaudeConfig:
     api_key: str = ""  # Anthropic API key
-    model: str = "claude-sonnet-4-6"  # 默认模型
+    model: str = "claude-sonnet-4-6"  # 默认模型（文本任务）
+    vision_model: str = "claude-opus-4-7"  # 视觉/PDF 文档提取专用模型
     max_tokens: int = 1024  # 最大输出 token
     base_url: str = ""  # 自定义 endpoint（留空则用官方地址）
 
@@ -191,7 +196,11 @@ class AppConfig:
 
 
 def load(config_path: Path = CONFIG_PATH) -> AppConfig:
-    """加载配置，优先级：环境变量 > config.toml > 默认值（空字符串）。"""
+    """加载配置，优先级：config.toml > 环境变量 > 默认值。
+
+    toml 中显式填写的非空值始终优先；env 仅在 toml 字段缺失或为空字符串时生效。
+    数值字段（port/lat/lon/max_tokens）以 0 视作"未设置"，回退到 env 或默认值。
+    """
     raw: dict[str, Any] = {}
     if config_path.exists():
         if tomllib is None:
@@ -201,52 +210,62 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
 
     garmin_raw = raw.get("garmin", {})
     garmin = GarminConfig(
-        email=os.environ.get("HEALTHY_GARMIN_EMAIL", garmin_raw.get("email", "")),
-        password=os.environ.get("HEALTHY_GARMIN_PASSWORD", garmin_raw.get("password", "")),
+        email=garmin_raw.get("email", "") or os.environ.get("HEALTHY_GARMIN_EMAIL", ""),
+        password=garmin_raw.get("password", "") or os.environ.get("HEALTHY_GARMIN_PASSWORD", ""),
     )
 
     wechat_raw = raw.get("wechat", {})
     wechat = WechatConfig(
-        account_id=os.environ.get("HEALTHY_WECHAT_ACCOUNT_ID", wechat_raw.get("account_id", "")),
-        channel=os.environ.get("HEALTHY_WECHAT_CHANNEL", wechat_raw.get("channel", "")),
-        target=os.environ.get("HEALTHY_WECHAT_TARGET", wechat_raw.get("target", "")),
+        account_id=wechat_raw.get("account_id", "")
+        or os.environ.get("HEALTHY_WECHAT_ACCOUNT_ID", ""),
+        channel=wechat_raw.get("channel", "") or os.environ.get("HEALTHY_WECHAT_CHANNEL", ""),
+        target=wechat_raw.get("target", "") or os.environ.get("HEALTHY_WECHAT_TARGET", ""),
     )
+
     vitals_raw = raw.get("vitals", {})
     vitals = VitalsConfig(
-        api_token=os.environ.get("HEALTHY_VITALS_API_TOKEN", vitals_raw.get("api_token", "")),
-        host=os.environ.get("HEALTHY_VITALS_HOST", vitals_raw.get("host", "0.0.0.0")),
-        port=int(os.environ.get("HEALTHY_VITALS_PORT", vitals_raw.get("port", 5000))),
+        api_token=vitals_raw.get("api_token", "")
+        or os.environ.get("HEALTHY_VITALS_API_TOKEN", ""),
+        host=vitals_raw.get("host", "") or os.environ.get("HEALTHY_VITALS_HOST", "") or "0.0.0.0",
+        port=int(
+            vitals_raw.get("port", 0) or os.environ.get("HEALTHY_VITALS_PORT", 0) or 5000
+        ),
     )
 
     claude_raw = raw.get("claude", {})
-    # 环境变量优先级高于 config.toml（与其他配置保持一致）
     claude = ClaudeConfig(
-        api_key=os.environ.get("ANTHROPIC_API_KEY", "")
-        or os.environ.get("HEALTHY_CLAUDE_API_KEY", "")
-        or claude_raw.get("api_key", ""),
-        model=os.environ.get("HEALTHY_CLAUDE_MODEL", "")
-        or claude_raw.get("model", "")
+        api_key=claude_raw.get("api_key", "")
+        or os.environ.get("ANTHROPIC_API_KEY", "")
+        or os.environ.get("HEALTHY_CLAUDE_API_KEY", ""),
+        model=claude_raw.get("model", "")
+        or os.environ.get("HEALTHY_CLAUDE_MODEL", "")
         or "claude-sonnet-4-6",
+        vision_model=claude_raw.get("vision_model", "")
+        or os.environ.get("HEALTHY_CLAUDE_VISION_MODEL", "")
+        or "claude-opus-4-7",
         max_tokens=int(
-            os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 0)
-            or claude_raw.get("max_tokens", 1024)
+            claude_raw.get("max_tokens", 0)
+            or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 0)
+            or 1024
         ),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL", "")
-        or os.environ.get("HEALTHY_CLAUDE_BASE_URL", "")
-        or claude_raw.get("base_url", ""),
+        base_url=claude_raw.get("base_url", "")
+        or os.environ.get("ANTHROPIC_BASE_URL", "")
+        or os.environ.get("HEALTHY_CLAUDE_BASE_URL", ""),
     )
 
     weather_raw = raw.get("weather", {})
     weather = WeatherConfig(
-        api_key=os.environ.get("HEALTHY_WEATHER_API_KEY", weather_raw.get("api_key", "")),
-        city=os.environ.get("HEALTHY_WEATHER_CITY", weather_raw.get("city", "")),
-        location_id=os.environ.get(
-            "HEALTHY_WEATHER_LOCATION_ID", weather_raw.get("location_id", "")
+        api_key=weather_raw.get("api_key", "") or os.environ.get("HEALTHY_WEATHER_API_KEY", ""),
+        city=weather_raw.get("city", "") or os.environ.get("HEALTHY_WEATHER_CITY", ""),
+        location_id=weather_raw.get("location_id", "")
+        or os.environ.get("HEALTHY_WEATHER_LOCATION_ID", ""),
+        api_host=weather_raw.get("api_host", "")
+        or os.environ.get("HEALTHY_WEATHER_API_HOST", ""),
+        latitude=float(
+            weather_raw.get("latitude", 0) or os.environ.get("HEALTHY_WEATHER_LAT", 0) or 39.92
         ),
-        api_host=os.environ.get("HEALTHY_WEATHER_API_HOST", weather_raw.get("api_host", "")),
-        latitude=float(os.environ.get("HEALTHY_WEATHER_LAT", weather_raw.get("latitude", 39.92))),
         longitude=float(
-            os.environ.get("HEALTHY_WEATHER_LON", weather_raw.get("longitude", 116.41))
+            weather_raw.get("longitude", 0) or os.environ.get("HEALTHY_WEATHER_LON", 0) or 116.41
         ),
     )
 
@@ -262,24 +281,29 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
 
     advisor_raw = raw.get("advisor", {})
     advisor = AdvisorConfig(
-        mode=os.environ.get("HEALTHY_ADVISOR_MODE", advisor_raw.get("mode", "claude_only")),
+        mode=os.environ.get("HEALTHY_ADVISOR_MODE", "")
+        or advisor_raw.get("mode", "")
+        or "claude_only",
     )
 
     dashboard_raw = raw.get("dashboard", {})
     dashboard = DashboardConfig(
-        password=os.environ.get("HEALTHY_DASHBOARD_PASSWORD", dashboard_raw.get("password", "")),
+        password=os.environ.get("HEALTHY_DASHBOARD_PASSWORD", "")
+        or dashboard_raw.get("password", ""),
         session_token=dashboard_raw.get("session_token", ""),
         saved_password=dashboard_raw.get("saved_password", ""),
     )
 
     outlook_raw = raw.get("outlook", {})
     outlook = OutlookConfig(
-        username=os.environ.get("HEALTHY_OUTLOOK_USERNAME", outlook_raw.get("username", "")),
-        email=os.environ.get("HEALTHY_OUTLOOK_EMAIL", outlook_raw.get("email", "")),
-        password=os.environ.get("HEALTHY_OUTLOOK_PASSWORD", outlook_raw.get("password", "")),
-        timezone=os.environ.get(
-            "HEALTHY_OUTLOOK_TIMEZONE", outlook_raw.get("timezone", "Asia/Shanghai")
-        ),
+        username=os.environ.get("HEALTHY_OUTLOOK_USERNAME", "")
+        or outlook_raw.get("username", ""),
+        email=os.environ.get("HEALTHY_OUTLOOK_EMAIL", "") or outlook_raw.get("email", ""),
+        password=os.environ.get("HEALTHY_OUTLOOK_PASSWORD", "")
+        or outlook_raw.get("password", ""),
+        timezone=os.environ.get("HEALTHY_OUTLOOK_TIMEZONE", "")
+        or outlook_raw.get("timezone", "")
+        or "Asia/Shanghai",
     )
 
     return AppConfig(

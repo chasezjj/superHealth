@@ -5,7 +5,6 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.components.charts import (
     chart_medical_timeline,
     chart_unified_lab_trend,
@@ -197,7 +196,6 @@ def render():
         **提示：** 异常值会用红色圆圈标注，参考范围用绿色背景显示。
         """)
 
-    disclaimer.render()
 
 
 def _render_merged_view(years: int):
@@ -402,8 +400,13 @@ def _render_single_metric_view(years: int):
     with st.expander("📋 查看原始数据"):
         display_df = df.copy()
         display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+        source_label = {
+            "lab": "门诊化验", "outpatient": "门诊病历",
+            "annual_checkup": "年度体检", "imaging": "影像报告",
+            "discharge": "出院小结", "other": "其他",
+        }
         display_df["source"] = display_df["source"].map(
-            {"lab_results": "门诊化验", "annual_checkups": "年度体检"}
+            lambda s: source_label.get(s, s)
         )
         st.dataframe(display_df, use_container_width=True)
 
@@ -460,8 +463,8 @@ def _render_multi_metric_view(years: int):
         color = METRIC_DISPLAY_CONFIG[metric]["color"]
 
         # 分离不同数据源
-        lab_data = df[df["source"] == "lab_results"]
-        checkup_data = df[df["source"] == "annual_checkups"]
+        lab_data = df[~df["source"].isin(["annual_checkup"])]
+        checkup_data = df[df["source"] == "annual_checkup"]
 
         # 年度体检
         if not checkup_data.empty:

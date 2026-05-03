@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.database import DEFAULT_DB_PATH as DB_PATH
 
 
@@ -100,7 +99,7 @@ def render():
 
         with db.get_conn(DB_PATH) as conn:
             goals = conn.execute(
-                "SELECT id, name, metric_key, direction FROM goals WHERE status = 'active' ORDER BY priority"
+                "SELECT id, name, metric_key, direction FROM goals WHERE status = 'active' ORDER BY start_date DESC"
             ).fetchall()
 
         if goals:
@@ -109,7 +108,7 @@ def render():
 
                 spec = METRIC_REGISTRY.get(g["metric_key"])
                 metric_label = spec.label if spec else g["metric_key"]
-                with st.expander(f"Goal: {g['name']}（{metric_label}）", expanded=False):
+                with st.expander(f"目标: {g['name']}（{metric_label}）", expanded=False):
                     if not candidates:
                         st.warning("暂无推荐干预方案")
                         continue
@@ -120,7 +119,7 @@ def render():
                         st.caption(f"共 {len(candidates)} 个方案（{source_tag}）")
                     with col_regenerate:
                         if st.button("重新生成", key=f"regen_{g['id']}"):
-                            with st.spinner("正在调用百川生成干预方案..."):
+                            with st.spinner("正在调用 AI 建议引擎生成干预方案..."):
                                 candidates = mgr.suggest_for_goal(g["id"], force_regenerate=True)
                             st.rerun()
 
@@ -210,5 +209,3 @@ def render():
                     st.markdown(f"**结论**：{h['conclusion']}")
                 if h.get("conclusion_date"):
                     st.caption(f"结案日期: {h['conclusion_date']}")
-
-    disclaimer.render()

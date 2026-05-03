@@ -9,7 +9,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from superhealth.dashboard.components import disclaimer
 from superhealth.dashboard.data_loader import (
     get_latest_weekly_report,
     load_feedback_by_range,
@@ -70,15 +69,15 @@ def render():
     if df_feedback.empty:
         st.info(f"{start_date} ~ {end_date} 暂无建议记录。")
     else:
-        st.caption(f"共 {len(df_feedback)} 条记录（{start_date} ~ {end_date}）")
-        for _, row in df_feedback.iterrows():
-            _render_feedback_card(row)
+        day_count = df_feedback["date"].nunique()
+        st.caption(f"共 {day_count} 天记录（{start_date} ~ {end_date}）")
+        for day_date, day_rows in df_feedback.groupby("date", sort=False):
+            _render_feedback_day_card(day_date, day_rows)
 
-    disclaimer.render()
 
 
 def _render_weekly_review():
-    """渲染本周周报摘要卡片（卡片式布局，每段独立展示）。"""
+    """渲染本周周报摘要卡片。"""
     summary, full_report = get_latest_weekly_report()
     if summary.startswith("（暂无"):
         st.info(summary)
@@ -89,11 +88,10 @@ def _render_weekly_review():
     if not sections:
         st.markdown(summary)
     else:
-        for title, body in sections:
-            with st.container(border=True):
+        with st.container(border=True):
+            for title, body in sections:
                 st.markdown(f"**{title}**")
                 st.markdown(body)
-            st.write("")
 
     if full_report:
         with st.expander("查看完整周报"):
@@ -145,6 +143,64 @@ def _parse_weekly_summary(summary: str) -> list[tuple[str, str]]:
         sections.append((current_title, " ".join(current_body)))
 
     return sections
+
+
+def _render_feedback_day_card(day_date, day_rows: pd.DataFrame):
+    """将同一天的所有建议类型合并渲染为一张卡片。"""
+    day_str = str(day_date)
+    compliances = day_rows["compliance"].dropna()
+    avg_compliance = int(compliances.mean()) if not compliances.empty else None
+    color, label = _compliance_label(avg_compliance)
+
+    with st.container(border=True):
+        col_title, col_badge = st.columns([3, 1])
+        with col_title:
+            st.markdown(f"**{day_str}**")
+        with col_badge:
+            if color == "green":
+                st.success(label)
+            elif color == "orange":
+                st.warning(label)
+            elif color == "red":
+                st.error(label)
+            else:
+                st.info(label)
+            if avg_compliance is not None:
+                st.progress(min(avg_compliance / 100.0, 1.0))
+
+        type_labels = {"exercise": "运动", "non-exercise": "非运动"}
+        last_idx = day_rows.index[-1]
+        for idx, row in day_rows.iterrows():
+            rtype = row.get("recommendation_type") or ""
+            type_label = type_labels.get(rtype, rtype) if rtype else ""
+            prefix = f"**[{type_label}]** " if type_label else ""
+            content = row["recommendation_content"]
+            actual = row["actual_action"]
+            st.markdown(f"{prefix}**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
+            if rtype == "non-exercise" and not row.get("compliance"):
+                st.info("💡 非运动类建议无法自动计算合规度")
+
+            user_fb = row["user_feedback"]
+            rating = row["user_rating"]
+            if user_fb or rating:
+                parts = []
+                if rating:
+                    parts.append("⭐" * rating)
+                if user_fb:
+                    parts.append(user_fb)
+                st.caption("用户反馈：" + " | ".join(parts))
+
+            tracked = row["tracked_metrics"]
+            if tracked:
+                try:
+                    data = json.loads(tracked) if isinstance(tracked, str) else tracked
+                except json.JSONDecodeError:
+                    data = None
+                if data:
+                    _render_tracked_metrics(data)
+
+            if idx != last_idx:
+                st.divider()
 
 
 def _render_feedback_card(row: pd.Series):
@@ -240,11 +296,10 @@ def _render_goal_progress():
         goals = query_active_goals(conn)
 
     if not goals:
-        st.info("当前无活跃目标。通过 CLI 添加：`python -m superhealth.goals add ...`")
+        st.info('当前无活跃目标。请前往侧边栏"阶段目标"页面新增。')
         _render_goal_history(mgr)
         return
 
-    priority_labels = {1: "P1 主要", 2: "P2 次要", 3: "P3 辅助"}
     direction_labels = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
 
     for goal in goals:
@@ -253,12 +308,11 @@ def _render_goal_progress():
 
         spec = METRIC_REGISTRY.get(goal["metric_key"])
         metric_label = spec.label if spec else goal["metric_key"]
-        p_label = priority_labels.get(goal["priority"], f"P{goal['priority']}")
 
         with st.container(border=True):
-            # 标题行：优先级 + 名称 + 指标 + 方向
+            # 标题行：名称 + 指标 + 方向
             st.markdown(
-                f"**{p_label}：{goal['name']}**  "
+                f"**{goal['name']}**  "
                 f"（{metric_label} · {direction_labels.get(goal['direction'], goal['direction'])}）"
             )
             if goal.get("baseline_value") is not None and goal.get("target_value") is not None:
@@ -339,7 +393,7 @@ def _render_goal_progress():
     today = date.today().isoformat()
     candidates = mgr.check_achievement_candidates(today)
     if candidates:
-        st.success("目标达成候选！请在 CLI 确认：`python -m superhealth.goals achieve <id>`")
+        st.success('目标达成候选！请前往"阶段目标"页点击"达成"按钮确认。')
         for c in candidates:
             st.write(f"  {c['goal']['name']}：{c['note']}")
 
@@ -369,5 +423,5 @@ def _render_goal_history(mgr: "GoalManager"):
             st.write(
                 f"{status_icon} {g['name']}（{g['status']}）"
                 + (f" · 达成日：{g['achieved_date']}" if g.get("achieved_date") else "")
-                + f" · {g['start_date']} ~ {g.get('target_date', '—')}"
+                + f" · 始于 {g['start_date']}"
             )

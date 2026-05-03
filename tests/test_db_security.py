@@ -12,40 +12,29 @@ def tmp_db(tmp_path):
 
 
 class TestKwargsWhitelist:
-    def test_insert_eye_exam_valid(self, tmp_db):
+    def test_insert_medical_document_valid(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            db.insert_eye_exam(conn, date="2025-01-01", od_iop=15.0, os_iop=16.0)
-            rows = conn.execute("SELECT * FROM eye_exams").fetchall()
+            doc_id = db.insert_medical_document(
+                conn, doc_date="2025-01-01", doc_type="lab", markdown_path="data/lab/2025-01-01.md"
+            )
+            rows = conn.execute("SELECT * FROM medical_documents").fetchall()
         assert len(rows) == 1
-        assert rows[0]["od_iop"] == 15.0
+        assert doc_id == 1
 
-    def test_insert_eye_exam_invalid_col(self, tmp_db):
+    def test_bulk_insert_observations_valid(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            with pytest.raises(ValueError, match="unknown column"):
-                db.insert_eye_exam(conn, date="2025-01-01", evil_column="drop table")
-
-    def test_insert_kidney_ultrasound_valid(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            db.insert_kidney_ultrasound(conn, date="2025-01-01", right_length_cm=10.5)
-            rows = conn.execute("SELECT * FROM kidney_ultrasounds").fetchall()
+            obs = [{"obs_date": "2025-01-01", "category": "lab", "item_name": "尿酸", "value_num": 420.0}]
+            db.bulk_insert_observations(conn, obs)
+            rows = conn.execute("SELECT * FROM medical_observations").fetchall()
         assert len(rows) == 1
+        assert rows[0]["value_num"] == 420.0
 
-    def test_insert_kidney_ultrasound_invalid(self, tmp_db):
+    def test_upsert_medical_condition_valid(self, tmp_db):
         with db.get_conn(tmp_db) as conn:
-            with pytest.raises(ValueError, match="unknown column"):
-                db.insert_kidney_ultrasound(conn, date="2025-01-01", hack="evil")
-
-    def test_upsert_annual_checkup_valid(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            db.upsert_annual_checkup(conn, checkup_date="2025-01-01", bmi=22.5, uric_acid=380)
-            rows = conn.execute("SELECT * FROM annual_checkups").fetchall()
+            db.upsert_medical_condition(conn, name="高尿酸血症", status="active")
+            rows = conn.execute("SELECT * FROM medical_conditions").fetchall()
         assert len(rows) == 1
-        assert rows[0]["bmi"] == 22.5
-
-    def test_upsert_annual_checkup_invalid(self, tmp_db):
-        with db.get_conn(tmp_db) as conn:
-            with pytest.raises(ValueError, match="unknown column"):
-                db.upsert_annual_checkup(conn, checkup_date="2025-01-01", __secret="evil")
+        assert rows[0]["name"] == "高尿酸血症"
 
     def test_insert_medication_valid(self, tmp_db):
         with db.get_conn(tmp_db) as conn:

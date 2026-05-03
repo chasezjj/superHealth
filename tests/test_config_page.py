@@ -2,13 +2,15 @@
 
 页面渲染（render）依赖 streamlit runtime，不在此处测试；这里聚焦于：
 - _derive_dashboard_password：密码 hash 推导
-- _is_healthy_job / _parse_cron_line / _sanitize_cron_command：crontab 工具
-- _get_crontab：读取 crontab 的容错处理
+- _is_healthy_job / _is_daily_pipeline_job / _parse_cron_line / _sanitize_cron_command：crontab 工具
+- _get_crontab / _ensure_path_header / _save_crontab：crontab 读写
+- _cron_log_path / _split_cmd_redirect / _attach_log_redirect / _line_with_log_redirect / _read_log_tail：日志重定向辅助
 - _vitals_pid / _start_vitals_receiver / _stop_vitals_receiver：进程管理
 """
 from __future__ import annotations
 
 import signal
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -89,6 +91,46 @@ class TestIsHealthyJob:
         # 任意位置出现 superhealth 字符串均视为 health 任务
         line = "0 7 * * * /home/user/superhealth-tools/run.sh"
         assert page._is_healthy_job(line) is True
+
+
+# ---------------------------------------------------------------------------
+# _is_daily_pipeline_job
+# ---------------------------------------------------------------------------
+
+
+class TestIsDailyPipelineJob:
+    def test_matches_daily_pipeline_job(self):
+        line = "0 7 * * * python3 -m superhealth.daily_pipeline"
+        assert page._is_daily_pipeline_job(line) is True
+
+    def test_matches_with_log_redirect(self):
+        line = (
+            "0 7 * * * python3 -m superhealth.daily_pipeline "
+            ">> /home/u/.superhealth/logs/cron/abc.log 2>&1"
+        )
+        assert page._is_daily_pipeline_job(line) is True
+
+    def test_other_superhealth_job_not_matched(self):
+        # 其他 superhealth 任务（非 daily_pipeline）不应识别为核心任务
+        line = "*/30 * * * * python3 -m superhealth.collectors.weather_collector"
+        assert page._is_daily_pipeline_job(line) is False
+
+    def test_empty_line(self):
+        assert page._is_daily_pipeline_job("") is False
+
+    def test_comment_line_with_keyword_not_matched(self):
+        # 即使注释里写了 daily_pipeline 也不算
+        line = "# 0 7 * * * python -m superhealth.daily_pipeline"
+        assert page._is_daily_pipeline_job(line) is False
+
+    def test_line_without_superhealth_keyword(self):
+        # 即使含有 daily_pipeline 字样，但未出现 superhealth 仍不算
+        line = "0 7 * * * /usr/local/bin/daily_pipeline.sh"
+        assert page._is_daily_pipeline_job(line) is False
+
+    def test_command_with_args(self):
+        line = "0 7 * * * python -m superhealth.daily_pipeline --no-wechat"
+        assert page._is_daily_pipeline_job(line) is True
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +251,312 @@ class TestGetCrontab:
         fake = MagicMock(returncode=1, stdout="some error noise")
         with patch.object(page.subprocess, "run", return_value=fake):
             assert page._get_crontab() == ""
+
+
+# ---------------------------------------------------------------------------
+# _ensure_path_header / _save_crontab
+# ---------------------------------------------------------------------------
+
+
+class TestEnsurePathHeader:
+    def test_empty_content_gets_path(self):
+        result = page._ensure_path_header("")
+        assert result == page._CRON_PATH_LINE + "\n"
+
+    def test_content_without_path_gets_prefixed(self):
+        original = "0 7 * * * /usr/bin/uptime\n"
+        result = page._ensure_path_header(original)
+        assert result.startswith(page._CRON_PATH_LINE + "\n")
+        assert "0 7 * * * /usr/bin/uptime" in result
+
+    def test_existing_path_preserved(self):
+        original = "PATH=/custom/bin:/usr/bin\n0 7 * * * cmd\n"
+        result = page._ensure_path_header(original)
+        # 不重复注入
+        assert result == original
+        assert result.count("PATH=") == 1
+
+    def test_path_after_comments_still_recognized(self):
+        original = "# header comment\n\nPATH=/x:/y\n0 7 * * * cmd\n"
+        result = page._ensure_path_header(original)
+        assert result == original
+        assert page._CRON_PATH_LINE not in result
+
+    def test_only_comments_gets_path_injected(self):
+        # 全是注释也应注入 PATH（注释不算 PATH 设置）
+        original = "# only a comment\n"
+        result = page._ensure_path_header(original)
+        assert result.startswith(page._CRON_PATH_LINE + "\n")
+        assert "# only a comment" in result
+
+    def test_ensures_trailing_newline(self):
+        # 原内容没有结尾换行也应补全
+        result = page._ensure_path_header("0 7 * * * cmd")
+        assert result.endswith("\n")
+
+
+class TestSaveCrontab:
+    def test_injects_path_header_when_missing(self):
+        with patch.object(page.subprocess, "run") as mock_run:
+            page._save_crontab("0 7 * * * cmd\n")
+        args, kwargs = mock_run.call_args
+        assert args[0] == ["crontab", "-"]
+        sent = kwargs["input"]
+        assert sent.startswith(page._CRON_PATH_LINE + "\n")
+        assert "0 7 * * * cmd" in sent
+
+    def test_preserves_existing_path_header(self):
+        original = "PATH=/custom\n0 7 * * * cmd\n"
+        with patch.object(page.subprocess, "run") as mock_run:
+            page._save_crontab(original)
+        sent = mock_run.call_args.kwargs["input"]
+        assert sent == original  # 未被重复修改
+
+
+# ---------------------------------------------------------------------------
+# 日志路径与重定向辅助函数
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def isolated_cron_log_dir(tmp_path, monkeypatch):
+    """将 _CRON_LOG_DIR 指向 tmp，避免污染 ~/.superhealth/logs/cron。"""
+    fake = tmp_path / "cron-logs"
+    monkeypatch.setattr(page, "_CRON_LOG_DIR", fake)
+    return fake
+
+
+class TestCronLogPath:
+    def test_deterministic_for_same_command(self, isolated_cron_log_dir):
+        cmd = "python3 -m superhealth.daily_pipeline"
+        assert page._cron_log_path(cmd) == page._cron_log_path(cmd)
+
+    def test_different_commands_get_distinct_paths(self, isolated_cron_log_dir):
+        a = page._cron_log_path("python3 -m superhealth.daily_pipeline")
+        b = page._cron_log_path("python3 -m superhealth.collectors.weather_collector")
+        assert a != b
+
+    def test_path_lives_under_cron_log_dir(self, isolated_cron_log_dir):
+        result = page._cron_log_path("anything")
+        # 解析符号链接以避免 macOS /var → /private/var 等不一致
+        assert result.parent.resolve() == isolated_cron_log_dir.resolve()
+
+    def test_filename_is_12_hex_plus_log(self, isolated_cron_log_dir):
+        result = page._cron_log_path("anything")
+        stem, ext = result.stem, result.suffix
+        assert ext == ".log"
+        assert len(stem) == 12
+        # SHA1 的 hexdigest 仅含 0-9a-f
+        assert all(c in "0123456789abcdef" for c in stem)
+
+    def test_handles_unicode_command(self, isolated_cron_log_dir):
+        # 中文命令也应能稳定生成路径，不抛错
+        cmd = "python3 -m superhealth.daily_pipeline  # 每日运行"
+        result = page._cron_log_path(cmd)
+        assert result.suffix == ".log"
+        # 同一中文输入 → 同一路径
+        assert result == page._cron_log_path(cmd)
+
+
+class TestSplitCmdRedirect:
+    def test_command_without_redirect(self):
+        cmd, log = page._split_cmd_redirect("python3 -m superhealth.daily_pipeline")
+        assert cmd == "python3 -m superhealth.daily_pipeline"
+        assert log is None
+
+    def test_command_with_redirect_split(self):
+        cmd, log = page._split_cmd_redirect(
+            "python3 -m superhealth.daily_pipeline >> /tmp/abc.log 2>&1"
+        )
+        assert cmd == "python3 -m superhealth.daily_pipeline"
+        assert log == Path("/tmp/abc.log")
+
+    def test_redirect_with_extra_internal_whitespace(self):
+        # `>>` 与路径之间允许多空格，路径与 `2>&1` 之间也允许多空格
+        cmd, log = page._split_cmd_redirect("cmd  >>   /tmp/x.log    2>&1")
+        assert cmd == "cmd"
+        assert log == Path("/tmp/x.log")
+
+    def test_only_redirect_no_stderr_suffix_unchanged(self):
+        # 没有 `2>&1` 后缀不应触发剥离
+        original = "cmd >> /tmp/x.log"
+        cmd, log = page._split_cmd_redirect(original)
+        assert cmd == original
+        assert log is None
+
+    def test_only_stderr_redirect_no_match(self):
+        original = "cmd 2>&1"
+        cmd, log = page._split_cmd_redirect(original)
+        assert cmd == original
+        assert log is None
+
+    def test_trailing_whitespace_tolerated(self):
+        # 尾部空白也应剥离
+        cmd, log = page._split_cmd_redirect("cmd >> /tmp/y.log 2>&1   ")
+        assert cmd == "cmd"
+        assert log == Path("/tmp/y.log")
+
+    def test_redirect_in_middle_not_stripped(self):
+        # 中间出现 `>>` 但末尾不是合法重定向 → 不剥离
+        original = "cmd >> middle >> /tmp/x.log notend"
+        cmd, log = page._split_cmd_redirect(original)
+        assert cmd == original
+        assert log is None
+
+
+class TestAttachLogRedirect:
+    def test_appends_redirect_suffix(self, isolated_cron_log_dir):
+        full, path = page._attach_log_redirect("python3 -m superhealth.daily_pipeline")
+        assert full.startswith("python3 -m superhealth.daily_pipeline")
+        assert full.endswith(" 2>&1")
+        assert " >> " in full
+        assert str(path) in full
+
+    def test_returned_path_matches_cron_log_path(self, isolated_cron_log_dir):
+        cmd = "python3 -m superhealth.daily_pipeline"
+        _full, path = page._attach_log_redirect(cmd)
+        assert path == page._cron_log_path(cmd)
+
+    def test_creates_log_parent_dir(self, isolated_cron_log_dir):
+        assert not isolated_cron_log_dir.exists()
+        page._attach_log_redirect("cmd")
+        assert isolated_cron_log_dir.is_dir()
+
+    def test_roundtrip_with_split(self, isolated_cron_log_dir):
+        clean = "python3 -m superhealth.daily_pipeline"
+        full, attached_path = page._attach_log_redirect(clean)
+        recovered, log_path = page._split_cmd_redirect(full)
+        assert recovered == clean
+        assert log_path == attached_path
+
+    def test_idempotent_path_for_same_command(self, isolated_cron_log_dir):
+        # 多次调用同一命令应得到同一日志路径
+        _, p1 = page._attach_log_redirect("cmd")
+        _, p2 = page._attach_log_redirect("cmd")
+        assert p1 == p2
+
+
+class TestLineWithLogRedirect:
+    def test_full_line_gets_redirect_appended(self, isolated_cron_log_dir):
+        line = "0 7 * * * python3 -m superhealth.daily_pipeline"
+        result = page._line_with_log_redirect(line)
+        assert result.startswith("0 7 * * * python3 -m superhealth.daily_pipeline >> ")
+        assert result.endswith(" 2>&1")
+
+    def test_short_line_unchanged(self, isolated_cron_log_dir):
+        # 字段数不足 6 不应处理，返回原样
+        assert page._line_with_log_redirect("0 7 * * *") == "0 7 * * *"
+        assert page._line_with_log_redirect("") == ""
+        assert page._line_with_log_redirect("just a few words") == "just a few words"
+
+    def test_preserves_complex_time_fields(self, isolated_cron_log_dir):
+        line = "*/5 0,30 1 1-12 1-5 cmd arg1 arg2"
+        result = page._line_with_log_redirect(line)
+        # 时间前缀完整保留
+        assert result.startswith("*/5 0,30 1 1-12 1-5 cmd arg1 arg2 >> ")
+
+    def test_command_part_uses_correct_log_path(self, isolated_cron_log_dir):
+        line = "0 7 * * * python3 -m superhealth.daily_pipeline"
+        result = page._line_with_log_redirect(line)
+        # 日志路径应基于纯命令部分（不含时间字段）
+        expected = page._cron_log_path("python3 -m superhealth.daily_pipeline")
+        assert str(expected) in result
+
+    def test_idempotency_changes_log_path(self, isolated_cron_log_dir):
+        # 注意：函数不去重，连续两次调用会再追加一次重定向（不是 bug，是契约）。
+        # 这里仅验证函数对已含重定向的命令不会抛错，仍能产生新 line。
+        line = "0 7 * * * cmd"
+        once = page._line_with_log_redirect(line)
+        twice = page._line_with_log_redirect(once)
+        # twice 仍包含原始命令，但末尾有两段重定向（实际生产中应先 split 再 attach）
+        assert "cmd" in twice
+        assert twice.count(">>") >= 1
+
+
+class TestReadLogTail:
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert page._read_log_tail(tmp_path / "no-such.log") == ""
+
+    def test_empty_file_returns_empty(self, tmp_path):
+        f = tmp_path / "empty.log"
+        f.write_text("")
+        assert page._read_log_tail(f) == ""
+
+    def test_small_file_returns_all_lines(self, tmp_path):
+        f = tmp_path / "small.log"
+        f.write_text("a\nb\nc\n")
+        result = page._read_log_tail(f, lines=10)
+        assert result.splitlines() == ["a", "b", "c"]
+
+    def test_returns_only_last_n_lines(self, tmp_path):
+        f = tmp_path / "many.log"
+        f.write_text("\n".join(f"line-{i}" for i in range(50)) + "\n")
+        result = page._read_log_tail(f, lines=5)
+        assert result.splitlines() == [
+            "line-45",
+            "line-46",
+            "line-47",
+            "line-48",
+            "line-49",
+        ]
+
+    def test_default_tail_size_is_200(self, tmp_path):
+        f = tmp_path / "huge.log"
+        f.write_text("\n".join(f"L{i}" for i in range(500)) + "\n")
+        result = page._read_log_tail(f)
+        # 默认 200 行
+        lines = result.splitlines()
+        assert len(lines) == 200
+        assert lines[0] == "L300"
+        assert lines[-1] == "L499"
+
+    def test_handles_large_file_spanning_multiple_blocks(self, tmp_path):
+        # 写入超过 64KB 的内容（每行 100 字节，写 1500 行 ≈ 150KB）
+        f = tmp_path / "big.log"
+        with f.open("w") as fp:
+            for i in range(1500):
+                fp.write(f"row-{i:08d}-" + "x" * 80 + "\n")
+        result = page._read_log_tail(f, lines=10)
+        rows = result.splitlines()
+        assert len(rows) == 10
+        assert rows[-1].startswith("row-00001499")
+        assert rows[0].startswith("row-00001490")
+
+    def test_handles_invalid_utf8_without_crash(self, tmp_path):
+        f = tmp_path / "binary.log"
+        # 嵌入非法 UTF-8 字节序列
+        f.write_bytes(b"line1\n\xff\xfe bad bytes\nline3\n")
+        result = page._read_log_tail(f, lines=10)
+        # 不抛错，且能恢复出有效行
+        assert "line1" in result
+        assert "line3" in result
+
+    def test_handles_unicode_content(self, tmp_path):
+        f = tmp_path / "zh.log"
+        f.write_text("第一行\n第二行\n第三行\n", encoding="utf-8")
+        result = page._read_log_tail(f, lines=2)
+        assert result.splitlines() == ["第二行", "第三行"]
+
+    def test_returns_empty_on_oserror(self, tmp_path):
+        # 让 path.open 抛 OSError，验证安全失败
+        f = tmp_path / "x.log"
+        f.write_text("hello\n")
+
+        original_open = page.Path.open
+
+        def bad_open(self, *args, **kwargs):
+            if self == f:
+                raise OSError("disk error")
+            return original_open(self, *args, **kwargs)
+
+        with patch.object(page.Path, "open", bad_open):
+            assert page._read_log_tail(f) == ""
+
+    def test_file_without_trailing_newline(self, tmp_path):
+        f = tmp_path / "noeol.log"
+        f.write_text("only-line")
+        result = page._read_log_tail(f, lines=10)
+        assert result.splitlines() == ["only-line"]
 
 
 # ---------------------------------------------------------------------------

@@ -223,7 +223,7 @@ def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
         # ── 幂等检查：compliance 已填写则跳过 ──
         existing = conn.execute(
             """SELECT id, compliance, recommendation_type, recommendation_content, user_feedback, user_rating, tracked_metrics FROM recommendation_feedback
-               WHERE date = ? AND recommendation_type IN ('exercise', 'recovery', 'rest')""",
+               WHERE date = ? ORDER BY id DESC LIMIT 1""",
             (yesterday,),
         ).fetchone()
         if existing and existing["compliance"] is not None:
@@ -234,6 +234,11 @@ def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
             )
             rec_type = existing["recommendation_type"]
             _write_quality_score(conn, yesterday, rec_type, existing["compliance"], existing)
+            return False
+
+        # non-exercise 类型无法自动计算 compliance，跳过
+        if existing and existing["recommendation_type"] == "non-exercise":
+            log.info("auto_feedback: %s 为 non-exercise 类型，跳过自动 compliance 计算", yesterday)
             return False
 
         # ── 1. 昨天的运动记录 ──

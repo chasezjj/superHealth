@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -29,7 +31,6 @@ from superhealth.config import (
     load,
     save_config,
 )
-from superhealth.dashboard.components import disclaimer
 
 
 def _derive_dashboard_password(new_pwd: str, stored: str) -> str:
@@ -67,6 +68,10 @@ def _is_healthy_job(line: str) -> bool:
     return "superhealth" in stripped
 
 
+def _is_daily_pipeline_job(line: str) -> bool:
+    return _is_healthy_job(line) and "daily_pipeline" in line
+
+
 def _parse_cron_line(line: str) -> tuple[str, str, str, str, str, str] | None:
     parts = line.strip().split()
     if len(parts) < 6:
@@ -82,8 +87,93 @@ def _sanitize_cron_command(cmd: str) -> str | None:
     return cmd
 
 
+_CRON_PATH_LINE = "PATH=/usr/local/bin:/usr/bin:/bin"
+
+
+def _ensure_path_header(content: str) -> str:
+    """确保 crontab 第一行是 PATH=… —— 如果已有 PATH 设置则保留，否则注入默认值。
+
+    cron 默认 PATH 通常仅含 /usr/bin:/bin，导致 python3 / brew 装的可执行文件找不到；
+    在文件开头声明 PATH 是最稳妥的办法。
+    """
+    lines = content.splitlines()
+    # 找到首个非空、非注释行
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("PATH="):
+            return content  # 已有 PATH，保持原样
+        break
+    # 没有 PATH 行 —— 在最前面插入
+    new_content = _CRON_PATH_LINE + "\n" + content
+    if not new_content.endswith("\n"):
+        new_content += "\n"
+    return new_content
+
+
 def _save_crontab(content: str) -> None:
+    content = _ensure_path_header(content)
     subprocess.run(["crontab", "-"], input=content, text=True, check=True)
+
+
+# ---------------------------------------------------------------------------
+# Cron 任务日志
+# ---------------------------------------------------------------------------
+
+_CRON_LOG_DIR = Path.home() / ".superhealth" / "logs" / "cron"
+_REDIRECT_RE = re.compile(r"\s*>>\s*(\S+)\s+2>&1\s*$")
+
+
+def _cron_log_path(clean_cmd: str) -> Path:
+    digest = hashlib.sha1(clean_cmd.encode("utf-8")).hexdigest()[:12]
+    return _CRON_LOG_DIR / f"{digest}.log"
+
+
+def _split_cmd_redirect(cmd: str) -> tuple[str, Path | None]:
+    """剥离命令尾部的 `>> <path> 2>&1` 后缀。返回 (干净命令, 日志路径或 None)。"""
+    m = _REDIRECT_RE.search(cmd)
+    if not m:
+        return cmd, None
+    return cmd[: m.start()].rstrip(), Path(m.group(1))
+
+
+def _attach_log_redirect(clean_cmd: str) -> tuple[str, Path]:
+    """给一行干净命令追加日志重定向后缀。返回 (完整命令, 日志路径)。"""
+    log_path = _cron_log_path(clean_cmd)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    return f"{clean_cmd} >> {log_path} 2>&1", log_path
+
+
+def _line_with_log_redirect(sanitized_line: str) -> str:
+    """对一整行 cron 配置（已 sanitize）的命令部分追加日志重定向。"""
+    parts = sanitized_line.split(maxsplit=5)
+    if len(parts) < 6:
+        return sanitized_line
+    time_prefix = " ".join(parts[:5])
+    full_cmd, _ = _attach_log_redirect(parts[5])
+    return f"{time_prefix} {full_cmd}"
+
+
+def _read_log_tail(path: Path, lines: int = 200) -> str:
+    """读取日志末尾若干行；不存在则返回空字符串。"""
+    if not path.exists():
+        return ""
+    try:
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            block = 64 * 1024
+            data = b""
+            while size > 0 and data.count(b"\n") <= lines:
+                read_size = min(block, size)
+                size -= read_size
+                f.seek(size)
+                data = f.read(read_size) + data
+        text = data.decode("utf-8", errors="replace")
+        return "\n".join(text.splitlines()[-lines:])
+    except OSError:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -643,69 +733,112 @@ def render() -> None:
     crontab_raw = _get_crontab()
     crontab_lines = crontab_raw.splitlines()
 
-    # -- existing Healthy jobs --
+    # ---- daily_pipeline 核心任务 ----
+    _DAILY_PIPELINE_CMD = "python3 -m superhealth.daily_pipeline"
+
+    st.markdown(
+        """
+**`superhealth.daily_pipeline`** 是 superHealth 的核心定时任务，每天自动按顺序完成以下工作：
+
+1. **Garmin 数据同步** — 拉取昨日与今日的运动、睡眠、心率、压力等数据，失败时自动重试；同时补拉历史上未成功同步的日期
+2. **日历数据同步** — 拉取 Outlook / Exchange 日程，用于分析忙碌程度对恢复的影响
+3. **生成高级健康日报** — 基于多维度健康数据，由 AI 模型（Claude / 百川）生成个性化分析与运动建议
+4. **推送微信通知** — 将日报通过 OpenClaw 发送到微信，方便随时查阅
+5. **自动反馈与效果追踪** — 对比历史建议与实际运动数据，评估执行效果，为策略学习提供依据
+6. **策略学习** — 根据长期效果数据调整建议策略参数，使建议越来越贴合个人状态
+7. **预约提醒** — 检查即将到来的就医、检查等日程，提前发送提醒通知
+
+完整日志保存在 `~/.superhealth/logs/cron/` 目录下。
+"""
+    )
+
+    dp_line = next((l for l in crontab_lines if _is_daily_pipeline_job(l)), None)
+    if dp_line:
+        dp_parsed = _parse_cron_line(dp_line)
+        if dp_parsed:
+            dp_m_init, dp_h_init = dp_parsed[0], dp_parsed[1]
+            _, dp_log_path = _split_cmd_redirect(dp_parsed[5])
+        else:
+            dp_m_init, dp_h_init = "0", "7"
+            dp_log_path = None
+        dp_exists = True
+        st.success("状态：已启用")
+    else:
+        dp_m_init, dp_h_init = "0", "7"
+        dp_log_path = None
+        dp_exists = False
+        st.warning("状态：未启用 — 设置好时间后点击「保存定时计划」即可启用")
+
+    col_m, col_h, col_label = st.columns([1, 1, 6])
+    dp_new_m = col_m.text_input("分钟", value=dp_m_init, key="dp_cron_m", help="0–59，默认 0")
+    dp_new_h = col_h.text_input("小时", value=dp_h_init, key="dp_cron_h", help="0–23，默认 7 表示早上 7 点")
+    col_label.caption(
+        f"命令（固定）：`{_DAILY_PIPELINE_CMD}`  ·  执行周期固定为每天（`* * *`），仅时间可调整"
+    )
+
+    if st.button("保存定时计划", key="btn_dp_save"):
+        new_dp_cron = f"{dp_new_m} {dp_new_h} * * * {_DAILY_PIPELINE_CMD}"
+        sanitized_dp = _sanitize_cron_command(new_dp_cron)
+        if sanitized_dp is None:
+            st.error("时间字段包含非法字符，请检查后重试")
+        else:
+            new_dp_line = _line_with_log_redirect(sanitized_dp)
+            current_lines = _get_crontab().splitlines()
+            updated: list[str] = []
+            replaced = False
+            for _l in current_lines:
+                if _is_daily_pipeline_job(_l):
+                    updated.append(new_dp_line)
+                    replaced = True
+                else:
+                    updated.append(_l)
+            if not replaced:
+                updated.append(new_dp_line)
+            _save_crontab("\n".join(updated) + "\n")
+            st.success("定时计划已保存")
+            st.rerun()
+
+    # -- 其他 superhealth 定时任务（不含 daily_pipeline）--
     edited_jobs_map: dict[int, str] = {}
+    job_had_redirect: dict[int, bool] = {}
     job_idx = 0
     for line in crontab_lines:
+        if _is_daily_pipeline_job(line):
+            continue
         if not _is_healthy_job(line):
             continue
         parsed = _parse_cron_line(line)
         if parsed is None:
             st.warning(f"无法解析的定时任务: `{line}`")
             edited_jobs_map[job_idx] = line
+            job_had_redirect[job_idx] = False
             job_idx += 1
             continue
 
         m, h, dom, mon, dow, cmd = parsed
+        clean_cmd, log_path = _split_cmd_redirect(cmd)
+        had_redirect = log_path is not None
+        job_had_redirect[job_idx] = had_redirect
+
         cols = st.columns([1.5, 1.5, 1.5, 1.5, 1.5, 6, 1])
         nm = cols[0].text_input("分", value=m, key=f"cron_m_{job_idx}")
         nh = cols[1].text_input("时", value=h, key=f"cron_h_{job_idx}")
         ndom = cols[2].text_input("日", value=dom, key=f"cron_dom_{job_idx}")
         nmon = cols[3].text_input("月", value=mon, key=f"cron_mon_{job_idx}")
         ndow = cols[4].text_input("周", value=dow, key=f"cron_dow_{job_idx}")
-        ncmd = cols[5].text_input("命令", value=cmd, key=f"cron_cmd_{job_idx}")
-        delete = cols[6].checkbox("删除", key=f"cron_del_{job_idx}")
-        if not delete:
-            edited_jobs_map[job_idx] = f"{nm} {nh} {ndom} {nmon} {ndow} {ncmd}"
-        job_idx += 1
-
-    if job_idx == 0:
-        st.info("当前没有 Healthy 相关的定时任务。")
-
-    # -- add new job --
-    with st.expander("添加新任务"):
-        st.caption(
-            "常用命令：`PYTHONPATH=src python -m superhealth.daily_pipeline`，"
-            "用于定时拉取 Garmin 数据、生成每日健康日报，以及评估运动恢复情况。"
-        )
-        c1, c2, c3, c4, c5 = st.columns(5)
-        new_m = c1.text_input("分", value="0", key="new_cron_m")
-        new_h = c2.text_input("时", value="7", key="new_cron_h")
-        new_dom = c3.text_input("日", value="*", key="new_cron_dom")
-        new_mon = c4.text_input("月", value="*", key="new_cron_mon")
-        new_dow = c5.text_input("周", value="*", key="new_cron_dow")
-        new_cmd = st.text_input(
-            "命令",
-            value="PYTHONPATH=src python -m superhealth.daily_pipeline",
-            key="new_cron_cmd",
-        )
-        if st.button("添加此任务", key="btn_add_cron"):
-            pending = st.session_state.get("pending_cron_jobs", [])
-            pending.append(f"{new_m} {new_h} {new_dom} {new_mon} {new_dow} {new_cmd}")
-            st.session_state["pending_cron_jobs"] = pending
+        ncmd = cols[5].text_input("命令", value=clean_cmd, key=f"cron_cmd_{job_idx}")
+        edited_jobs_map[job_idx] = f"{nm} {nh} {ndom} {nmon} {ndow} {ncmd}"
+        if cols[6].button("删除", key=f"cron_del_btn_{job_idx}"):
+            remaining = list(crontab_lines)
+            try:
+                remaining.remove(line)
+            except ValueError:
+                pass
+            _save_crontab(("\n".join(remaining) + "\n") if remaining else "")
+            st.success("已删除定时任务")
             st.rerun()
 
-    # -- pending jobs preview --
-    pending = st.session_state.get("pending_cron_jobs", [])
-    if pending:
-        st.subheader("待添加任务")
-        for i, job in enumerate(pending):
-            c1, c2 = st.columns([8, 1])
-            c1.code(job)
-            if c2.button("移除", key=f"rm_pending_{i}"):
-                pending.pop(i)
-                st.session_state["pending_cron_jobs"] = pending
-                st.rerun()
+        job_idx += 1
 
     # ========================================================================
     # Save
@@ -761,35 +894,29 @@ def render() -> None:
 
         save_config(new_config)
 
-        # rebuild crontab
+        # rebuild crontab：daily_pipeline 由专属区域独立管理，原样保留
         new_lines: list[str] = []
         job_idx = 0
         for line in crontab_lines:
-            if _is_healthy_job(line):
+            if _is_daily_pipeline_job(line):
+                new_lines.append(line)
+            elif _is_healthy_job(line):
                 if job_idx in edited_jobs_map:
-                    sanitized = _sanitize_cron_command(edited_jobs_map[job_idx])
+                    raw = edited_jobs_map[job_idx]
+                    sanitized = _sanitize_cron_command(raw)
                     if sanitized is None:
-                        st.error(f"定时任务包含危险字符，已跳过: {edited_jobs_map[job_idx]}")
+                        st.error(f"定时任务包含危险字符，已跳过: {raw}")
+                        job_idx += 1
                         continue
-                    new_lines.append(sanitized)
+                    if job_had_redirect.get(job_idx):
+                        new_lines.append(_line_with_log_redirect(sanitized))
+                    else:
+                        new_lines.append(sanitized)
                 job_idx += 1
             else:
                 new_lines.append(line)
 
-        # append pending jobs
-        for job in pending:
-            sanitized = _sanitize_cron_command(job)
-            if sanitized is None:
-                st.error(f"待添加任务包含危险字符，已跳过: {job}")
-                continue
-            new_lines.append(sanitized)
-
         _save_crontab("\n".join(new_lines) + "\n")
-
-        # clear pending
-        st.session_state.pop("pending_cron_jobs", None)
 
         st.success("配置已保存并生效")
         st.rerun()
-
-    disclaimer.render()
