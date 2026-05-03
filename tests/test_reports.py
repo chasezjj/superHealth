@@ -1,15 +1,28 @@
 """测试 daily_report.py 的纯逻辑函数。"""
-from datetime import date
 from unittest.mock import MagicMock, patch
 
-import pytest
-
+from superhealth.reports.advanced_daily_report import build_recommendation_feedback_content
 from superhealth.reports.daily_report import (
     DailyReportGenerator,
-    ExerciseRecommendation,
     RecoveryAssessment,
     VitalStats,
 )
+
+
+def test_build_recommendation_feedback_content_uses_consistent_section_labels():
+    content = build_recommendation_feedback_content(
+        {
+            "exercise": {"specific": "【热身】5分钟动态拉伸。"},
+            "recovery": {"actions": ["训练前吃一根香蕉", "训练后补充蛋白质"]},
+            "lifestyle": ["上午完成训练", "睡前呼吸放松"],
+        }
+    )
+
+    assert content == (
+        "【运动建议】【热身】5分钟动态拉伸。\n\n"
+        "【恢复建议】训练前吃一根香蕉；训练后补充蛋白质\n\n"
+        "【生活建议】上午完成训练；睡前呼吸放松"
+    )
 
 
 class TestAssessRecovery:

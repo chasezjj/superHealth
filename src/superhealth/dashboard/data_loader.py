@@ -13,11 +13,11 @@ import pandas as pd
 import streamlit as st
 
 from superhealth.database import (
+    _OBSERVATION_METRICS,
     DEFAULT_DB_PATH,
     get_conn,
     query_lab_trends_unified,
     query_multiple_metrics,
-    _OBSERVATION_METRICS,
 )
 from superhealth.user_profile import read_profile
 

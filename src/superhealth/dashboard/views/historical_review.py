@@ -176,7 +176,10 @@ def _render_feedback_day_card(day_date, day_rows: pd.DataFrame):
             prefix = f"**[{type_label}]** " if type_label else ""
             content = row["recommendation_content"]
             actual = row["actual_action"]
-            st.markdown(f"{prefix}**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
+            if isinstance(content, str) and content.lstrip().startswith("【运动建议】"):
+                st.markdown(f"{content}  \n**实际执行：** {actual or '—'}")
+            else:
+                st.markdown(f"{prefix}**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
             if rtype == "non-exercise" and not row.get("compliance"):
                 st.info("💡 非运动类建议无法自动计算合规度")
 
@@ -229,7 +232,10 @@ def _render_feedback_card(row: pd.Series):
         # 建议 & 实际执行
         content = row["recommendation_content"]
         actual = row["actual_action"]
-        st.markdown(f"**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
+        if isinstance(content, str) and content.lstrip().startswith("【运动建议】"):
+            st.markdown(f"{content}  \n**实际执行：** {actual or '—'}")
+        else:
+            st.markdown(f"**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
 
         # 用户反馈
         user_fb = row["user_feedback"]

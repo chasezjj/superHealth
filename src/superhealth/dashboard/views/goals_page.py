@@ -11,7 +11,6 @@ from superhealth.database import DEFAULT_DB_PATH as DB_PATH
 from superhealth.goals.manager import GoalManager
 from superhealth.goals.metrics import METRIC_REGISTRY
 
-
 _DIRECTION_LABELS = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
 
 

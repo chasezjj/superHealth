@@ -39,6 +39,26 @@ DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 
+def build_recommendation_feedback_content(llm_advice: dict) -> str:
+    """Build the recommendation_content stored for historical feedback."""
+    parts = []
+    exercise_advice = llm_advice.get("exercise", {})
+    exercise_text = exercise_advice.get("specific") or exercise_advice.get("type") or ""
+    if exercise_text:
+        parts.append("【运动建议】" + exercise_text)
+
+    recovery_advice = llm_advice.get("recovery", {})
+    recovery_actions = recovery_advice.get("actions", []) if isinstance(recovery_advice, dict) else []
+    if recovery_actions:
+        parts.append("【恢复建议】" + "；".join(recovery_actions))
+
+    lifestyle = llm_advice.get("lifestyle", [])
+    if lifestyle:
+        parts.append("【生活建议】" + "；".join(lifestyle))
+
+    return "\n\n".join(parts)
+
+
 class AdvancedDailyReportGenerator:
     """高级日报生成器，整合 Layer 2-4 能力。"""
 
@@ -275,20 +295,9 @@ class AdvancedDailyReportGenerator:
         if not test_mode:
             report_id = f"{day_str}-advanced-daily-report"
 
-            # 聚合所有建议到一个字段
-            parts = []
             exercise_advice = llm_advice.get("exercise", {})
             exercise_text = exercise_advice.get("specific") or exercise_advice.get("type") or ""
-            if exercise_text:
-                parts.append(exercise_text)
-            recovery_advice = llm_advice.get("recovery", {})
-            recovery_actions = recovery_advice.get("actions", []) if isinstance(recovery_advice, dict) else []
-            if recovery_actions:
-                parts.append("【恢复建议】" + "；".join(recovery_actions))
-            lifestyle = llm_advice.get("lifestyle", [])
-            if lifestyle:
-                parts.append("【生活建议】" + "；".join(lifestyle))
-            recommendation_content = "\n\n".join(parts)
+            recommendation_content = build_recommendation_feedback_content(llm_advice)
 
             # rec_type 二值判断：有运动内容 → exercise，否则 → non-exercise
             has_exercise = bool(exercise_text)

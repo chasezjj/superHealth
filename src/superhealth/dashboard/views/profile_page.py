@@ -19,8 +19,8 @@ _GENDER_VALUES = {"男": "male", "女": "female"}
 def _migrate_from_db() -> dict | None:
     """如果 profile.md 不存在，尝试从旧 user_profile 表读取数据。"""
     try:
-        from superhealth.collectors.fetch_garmin import BASE_DIR
         from superhealth import database as db
+        from superhealth.collectors.fetch_garmin import BASE_DIR
 
         db_path = BASE_DIR / "health.db"
         with db.get_conn(db_path) as conn:

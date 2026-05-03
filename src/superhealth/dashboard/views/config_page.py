@@ -752,21 +752,16 @@ def render() -> None:
 """
     )
 
-    dp_line = next((l for l in crontab_lines if _is_daily_pipeline_job(l)), None)
+    dp_line = next((line for line in crontab_lines if _is_daily_pipeline_job(line)), None)
     if dp_line:
         dp_parsed = _parse_cron_line(dp_line)
         if dp_parsed:
             dp_m_init, dp_h_init = dp_parsed[0], dp_parsed[1]
-            _, dp_log_path = _split_cmd_redirect(dp_parsed[5])
         else:
             dp_m_init, dp_h_init = "0", "7"
-            dp_log_path = None
-        dp_exists = True
         st.success("状态：已启用")
     else:
         dp_m_init, dp_h_init = "0", "7"
-        dp_log_path = None
-        dp_exists = False
         st.warning("状态：未启用 — 设置好时间后点击「保存定时计划」即可启用")
 
     col_m, col_h, col_label = st.columns([1, 1, 6])
