@@ -418,10 +418,10 @@ class AdvancedDailyReportGenerator:
         # === LLM 个性化建议 ===
         lines.append("## 今日个性化建议")
 
-        # 运动处方
+        # 运动建议
         exercise = llm_advice.get("exercise", {})
         if exercise:
-            lines.append("### 运动处方")
+            lines.append("### 运动建议")
             lines.append("")
             ex_type = exercise.get("type", "N/A")
             ex_intensity = exercise.get("intensity", "N/A")
