@@ -41,11 +41,15 @@ def submit_feedback(
     Returns:
         True 表示成功，False 表示失败
     """
+    if rating is not None and not 1 <= rating <= 5:
+        raise ValueError("rating must be between 1 and 5")
+
     with db.get_conn(db_path) as conn:
         # 检查是否已有记录
         existing = conn.execute(
             """SELECT id, user_feedback FROM recommendation_feedback
-               WHERE date = ? AND recommendation_type = ?""",
+               WHERE date = ? AND recommendation_type = ?
+               ORDER BY id DESC LIMIT 1""",
             (target_date, recommendation_type),
         ).fetchone()
 

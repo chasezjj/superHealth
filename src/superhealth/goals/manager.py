@@ -21,6 +21,16 @@ log = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
 
+_GOALS_COMPAT_COLUMNS = {
+    "status": "TEXT NOT NULL DEFAULT 'active'",
+    "target_value": "REAL",
+    "target_date": "TEXT",
+    "achieved_date": "TEXT",
+    "notes": "TEXT",
+    "created_at": "TIMESTAMP",
+    "updated_at": "TIMESTAMP",
+}
+
 
 class GoalManager:
     """阶段性目标管理：CRUD、进度追踪、达成/异常判定。"""
@@ -28,9 +38,33 @@ class GoalManager:
     def __init__(self, db_path: Path = DB_PATH):
         self.db_path = db_path
         self.metric_registry = GoalMetricRegistry()
+        self._ensure_goals_schema()
 
     def _get_conn(self):
         return db.get_conn(self.db_path)
+
+    def _ensure_goals_schema(self) -> None:
+        """补齐旧数据库中的 goals 兼容列。
+
+        部分本地库是在 goals 表补齐 lifecycle/target 字段前创建的。
+        Dashboard/CLI 直接实例化 GoalManager 时可能没有先运行完整 schema 初始化，
+        因此在管理器入口做一次轻量列迁移，避免新增目标或更新状态时报 no column。
+        """
+        with self._get_conn() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'goals'"
+            ).fetchone()
+            if not exists:
+                return
+
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(goals)").fetchall()
+            }
+            for col_name, col_type in _GOALS_COMPAT_COLUMNS.items():
+                if col_name in columns:
+                    continue
+                conn.execute(f"ALTER TABLE goals ADD COLUMN {col_name} {col_type}")
 
     # ── CRUD ──────────────────────────────────────────────────────────
 
@@ -42,7 +76,6 @@ class GoalManager:
         direction: str,
         target: Optional[float] = None,
         target_date: Optional[str] = None,
-        description: Optional[str] = None,
         baseline_value: Optional[float] = None,
     ) -> int:
         """添加新目标，自动计算基线。同一时间只能有一个活跃目标。
@@ -71,13 +104,12 @@ class GoalManager:
             cursor = conn.execute(
                 """
                 INSERT INTO goals
-                    (name, description, status, metric_key, direction,
+                    (name, status, metric_key, direction,
                      baseline_value, target_value, start_date, target_date)
-                VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                VALUES (?, 'active', ?, ?, ?, ?, ?, ?)
             """,
                 (
                     name,
-                    description,
                     metric_key,
                     direction,
                     baseline_value,
@@ -87,6 +119,18 @@ class GoalManager:
                 ),
             )
             goal_id = cursor.lastrowid or 0
+            self._write_goal_progress(
+                conn,
+                {
+                    "id": goal_id,
+                    "name": name,
+                    "metric_key": metric_key,
+                    "baseline_value": baseline_value,
+                    "target_value": target,
+                    "direction": direction,
+                },
+                today,
+            )
             log.info(
                 "GOAL_CREATED id=%d name=%s metric=%s baseline=%.1f target=%s",
                 goal_id,
@@ -264,42 +308,51 @@ class GoalManager:
                 if spec.frequency == "low_freq":
                     continue
 
-                current = self.metric_registry.get_current_value(conn, goal["metric_key"], ref_date)
-                if current is None:
-                    continue
+                self._write_goal_progress(conn, goal, ref_date)
 
-                baseline = goal["baseline_value"]
-                target = goal["target_value"]
-                direction = goal["direction"]
+    def _write_goal_progress(
+        self, conn: sqlite3.Connection, goal: dict, ref_date: str
+    ) -> bool:
+        """计算并写入单个目标在 ref_date 的进度；无可用当前值时跳过。"""
+        try:
+            current = self.metric_registry.get_current_value(conn, goal["metric_key"], ref_date)
+        except sqlite3.OperationalError as e:
+            log.warning("GOAL_PROGRESS_SKIPPED goal=%s date=%s error=%s", goal["name"], ref_date, e)
+            return False
+        if current is None:
+            return False
 
-                delta = round(current - baseline, 2) if baseline is not None else None
-                progress_pct = self.metric_registry.compute_progress(
-                    current, baseline, target, direction
-                )
+        baseline = goal["baseline_value"]
+        target = goal["target_value"]
+        direction = goal["direction"]
 
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO goal_progress
-                        (goal_id, date, current_value, delta_from_baseline, progress_pct)
-                    VALUES (?, ?, ?, ?, ?)
-                """,
-                    (
-                        goal["id"],
-                        ref_date,
-                        round(current, 2),
-                        delta,
-                        round(progress_pct, 2) if progress_pct is not None else None,
-                    ),
-                )
+        delta = round(current - baseline, 2) if baseline is not None else None
+        progress_pct = self.metric_registry.compute_progress(current, baseline, target, direction)
 
-                log.info(
-                    "GOAL_PROGRESS goal=%s date=%s current=%.1f delta=%s pct=%s",
-                    goal["name"],
-                    ref_date,
-                    current,
-                    delta,
-                    progress_pct,
-                )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO goal_progress
+                (goal_id, date, current_value, delta_from_baseline, progress_pct)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (
+                goal["id"],
+                ref_date,
+                round(current, 2),
+                delta,
+                round(progress_pct, 2) if progress_pct is not None else None,
+            ),
+        )
+
+        log.info(
+            "GOAL_PROGRESS goal=%s date=%s current=%.1f delta=%s pct=%s",
+            goal["name"],
+            ref_date,
+            current,
+            delta,
+            progress_pct,
+        )
+        return True
 
     # ── 达成/异常判定 ─────────────────────────────────────────────────
 

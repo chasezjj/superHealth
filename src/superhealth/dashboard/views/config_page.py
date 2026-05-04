@@ -420,7 +420,7 @@ def render() -> None:
 **字段说明：**
 - **API Token** — 鉴权密钥，在 Health Auto Export App 中填入相同的值（HTTP Header: `X-API-Key`）。随机生成一个长字符串即可，防止陌生人向服务器写入数据。
 - **Host** — 监听的网络地址。`0.0.0.0` 表示接受来自任何来源的请求（手机和服务器不在同一局域网时需要此设置）；`127.0.0.1` 仅接受本机请求。
-- **Port** — 监听端口，默认 `5000`。手机 App 中填入的 URL 格式为 `http://<服务器IP>:<Port>/health_data`。
+- **Port** — 监听端口，默认 `8506`。手机 App 中填入的 URL 格式为 `http://<服务器IP>:<Port>/health_data`。
 """
         )
         c1, c2, c3 = st.columns(3)

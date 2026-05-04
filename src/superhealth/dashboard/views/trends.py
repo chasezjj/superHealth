@@ -48,23 +48,23 @@ def render():
     else:
         st.info("无 Garmin 数据")
 
-    # 图2：血压
+    # 图2：压力指数
+    if not df_dh.empty and df_dh["stress_average"].notna().any():
+        st.plotly_chart(chart_stress(df_dh), width="stretch")
+    else:
+        st.info("无压力数据")
+
+    # 图3：血压
     if not df_vitals.empty and df_vitals["systolic"].notna().any():
         st.plotly_chart(chart_bp(df_vitals), width="stretch")
     else:
         st.info("无血压记录")
 
-    # 图3：体重 + 体脂率
+    # 图4：体重 + 体脂率
     if not df_vitals.empty and df_vitals["weight_kg"].notna().any():
         st.plotly_chart(chart_weight_fat(df_vitals), width="stretch")
     else:
         st.info("无体重记录")
-
-    # 图4：压力指数
-    if not df_dh.empty and df_dh["stress_average"].notna().any():
-        st.plotly_chart(chart_stress(df_dh), width="stretch")
-    else:
-        st.info("无压力数据")
 
     # 图5：运动甘特图
     st.plotly_chart(chart_exercise_gantt(df_ex), width="stretch")

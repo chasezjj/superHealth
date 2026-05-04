@@ -13,6 +13,18 @@ from superhealth.goals.metrics import METRIC_REGISTRY
 
 _DIRECTION_LABELS = {"decrease": "降低", "increase": "提升", "stabilize": "稳定"}
 
+_GOAL_BASELINE_HELP = (
+    "自动计算基线时，系统取创建目标当天之前7天（不含创建日）的同类指标。"
+    "7日均值类指标会先按天聚合，再取这些日均值的平均；至少需要3天可用数据。"
+    "填 0.0 表示自动计算；手动填写时会直接使用你输入的值作为基线。"
+)
+
+_GOAL_METRIC_HELP = (
+    "目标指标决定当前值的计算方式。"
+    "名称里带“7日均值”的指标，当前值是快照日期最近7天（含当天）的日均值平均。"
+    "血压、体重、体脂等 vitals 指标会先把同一天多次记录合并为日均值。"
+)
+
 
 def _metric_options() -> list[str]:
     """返回 'label (key)' 格式的指标选项列表。"""
@@ -89,22 +101,34 @@ def render():
 def _render_add_form(mgr: GoalManager):
     """新增目标表单。同一时间只能有一个活跃目标。"""
     if mgr.list_goals(status="active"):
-        st.info("当前已有活跃目标，需先达成、暂停或废弃后才能新建。")
+        st.info("当前已有活跃目标，需先达成、暂停或废弃后才能新建。下一步可以去实验追踪里选择适合的行动建议。")
         return
     with st.expander("＋ 新增目标"):
         with st.form("add_goal_form"):
-            metric_option = st.selectbox("追踪指标 *", options=_metric_options(), key="add_goal_metric")
+            metric_option = st.selectbox(
+                "追踪指标 *",
+                options=_metric_options(),
+                key="add_goal_metric",
+                help=_GOAL_METRIC_HELP,
+            )
             direction_label = st.selectbox(
                 "方向 *",
                 options=list(_DIRECTION_LABELS.values()),
                 key="add_goal_direction",
+                help="降低表示数值下降是好事；提升表示数值上升是好事；稳定表示保持在基线附近是好事。",
             )
-            target_value = st.number_input("目标值 *", value=0.0, step=0.1, key="add_goal_target")
+            target_value = st.number_input(
+                "目标值 *",
+                value=0.0,
+                step=0.1,
+                key="add_goal_target",
+                help="进度会用当前值、基线值、目标值和方向一起计算。",
+            )
             baseline_value = st.number_input(
                 "基线值（留空则自动计算）",
                 value=0.0,
                 step=0.1,
-                help="填 0.0 表示自动计算（需近 7 天有至少 3 天数据）。若提示数据不足，请手动填入当前的参考值。",
+                help=_GOAL_BASELINE_HELP,
                 key="add_goal_baseline",
             )
 

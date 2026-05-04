@@ -12,8 +12,16 @@ from superhealth.dashboard.data_loader import (
     get_latest_daily_health,
     get_upcoming_appointments,
     load_daily_health,
+    load_feedback_by_range,
 )
-from superhealth.dashboard.views.historical_review import _render_goal_progress
+from superhealth.dashboard.views.historical_review import GOAL_PROGRESS_HELP, _render_goal_progress
+
+
+def _latest_feedback_for_today(df_feedback):
+    """返回当天最新反馈记录，供页面预填表单。"""
+    if df_feedback.empty:
+        return None
+    return df_feedback.iloc[0]
 
 
 def _trend_arrow(current, prev) -> str:
@@ -167,7 +175,7 @@ def render():
     st.divider()
 
     # ── 目标进度快照 ──────────────────────────────────────────────────
-    st.subheader("目标进度快照")
+    st.subheader("目标进度快照", help=GOAL_PROGRESS_HELP)
     _render_goal_progress()
 
     st.divider()
@@ -198,6 +206,10 @@ def render():
         st.session_state.user_daily_context_input = st.session_state.user_daily_context
     if "pending_user_context" not in st.session_state:
         st.session_state.pending_user_context = ""
+    if "daily_feedback_saved" not in st.session_state:
+        st.session_state.daily_feedback_saved = False
+    if "daily_feedback_error" not in st.session_state:
+        st.session_state.daily_feedback_error = ""
     st.session_state.user_daily_context = st.session_state.get("user_daily_context_input", "")
 
     report_dir = DEFAULT_DB_PATH.parent / "data" / "daily-reports"
@@ -275,4 +287,65 @@ def render():
             st.session_state.report_generate_error = ""
             st.session_state.report_just_generated = False
             st.session_state.pending_user_context = st.session_state.user_daily_context
+            st.rerun()
+
+    st.divider()
+    st.subheader("用户反馈与评级")
+    if st.session_state.daily_feedback_saved:
+        st.success("反馈已保存。")
+        st.session_state.daily_feedback_saved = False
+    if st.session_state.daily_feedback_error:
+        st.error(f"保存失败: {st.session_state.daily_feedback_error}")
+        st.session_state.daily_feedback_error = ""
+
+    df_feedback = load_feedback_by_range(today_str, today_str)
+    feedback_row = _latest_feedback_for_today(df_feedback)
+    existing_feedback = ""
+    existing_rating = None
+    recommendation_type = "exercise"
+    if feedback_row is not None:
+        existing_feedback = feedback_row.get("user_feedback") or ""
+        existing_rating = feedback_row.get("user_rating")
+        recommendation_type = feedback_row.get("recommendation_type") or "exercise"
+        if existing_rating is not None and existing_rating == existing_rating:
+            existing_rating = int(existing_rating)
+        else:
+            existing_rating = None
+
+    rating_options = ["不评分", 1, 2, 3, 4, 5]
+    rating_index = rating_options.index(existing_rating) if existing_rating in rating_options else 0
+
+    with st.form("daily_recommendation_feedback_form"):
+        feedback_text = st.text_area(
+            "今天的建议对你是否有帮助？",
+            value=existing_feedback,
+            placeholder="例如：运动建议可执行，但强度略高；晚间安排不方便落实...",
+            height=90,
+        )
+        rating_value = st.radio(
+            "建议评分",
+            rating_options,
+            index=rating_index,
+            horizontal=True,
+            format_func=lambda v: "不评分" if v == "不评分" else f"{v} 星",
+        )
+        submitted = st.form_submit_button("保存反馈")
+
+    if submitted:
+        from superhealth.feedback.feedback_collector import submit_feedback
+
+        rating = None if rating_value == "不评分" else int(rating_value)
+        try:
+            submit_feedback(
+                target_date=today_str,
+                feedback=feedback_text.strip(),
+                recommendation_type=recommendation_type,
+                rating=rating,
+                db_path=DEFAULT_DB_PATH,
+            )
+            load_feedback_by_range.clear()
+            st.session_state.daily_feedback_saved = True
+            st.rerun()
+        except Exception as e:
+            st.session_state.daily_feedback_error = str(e)
             st.rerun()

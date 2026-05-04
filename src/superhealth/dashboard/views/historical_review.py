@@ -18,6 +18,13 @@ from superhealth.database import DEFAULT_DB_PATH, get_conn, query_active_goals
 from superhealth.goals.manager import GoalManager
 from superhealth.goals.metrics import METRIC_REGISTRY
 
+GOAL_PROGRESS_HELP = (
+    "当前值：每日进度快照写入时按目标指标重新计算。"
+    "7日均值类指标会先按天聚合，再取最近7天（含快照日期）日均值的平均。"
+    "基线：目标创建时确定；自动计算时取创建日前7天（不含创建日）的同类聚合值。"
+    "变化值为当前值减基线值，颜色按目标方向判断：朝目标方向为绿色，反方向为红色。"
+)
+
 
 def _compliance_label(compliance: int | None) -> tuple[str, str]:
     """返回 (颜色标签, 文字描述)。"""
@@ -41,12 +48,36 @@ def _assessment_badge(assessment: str | None) -> str:
     return "⚪ 暂无评估"
 
 
+def _rating_stars(rating) -> str:
+    """将数据库/Pandas 评分值转换为星级文本。"""
+    if rating is None or pd.isna(rating):
+        return ""
+    rating_int = int(rating)
+    if not 1 <= rating_int <= 5:
+        return ""
+    return "⭐" * rating_int
+
+
+def _goal_delta_color(direction: str) -> str:
+    """返回 Streamlit metric delta 颜色规则。"""
+    if direction == "decrease":
+        return "inverse"
+    if direction == "increase":
+        return "normal"
+    return "off"
+
+
 def render():
     st.header("历史回顾")
 
     # ── 本周历史回顾 ──
-    st.subheader("本周历史回顾")
-    _render_weekly_review()
+    summary, full_report = get_latest_weekly_report()
+    weekly_range = _extract_weekly_report_range(full_report)
+    weekly_title = "本周历史回顾"
+    if weekly_range:
+        weekly_title += f"（{weekly_range}）"
+    st.subheader(weekly_title, help="只在当周周日定时生成")
+    _render_weekly_review(summary, full_report)
 
     st.divider()
 
@@ -76,9 +107,8 @@ def render():
 
 
 
-def _render_weekly_review():
+def _render_weekly_review(summary: str, full_report: str):
     """渲染本周周报摘要卡片。"""
-    summary, full_report = get_latest_weekly_report()
     if summary.startswith("（暂无"):
         st.info(summary)
         return
@@ -96,6 +126,22 @@ def _render_weekly_review():
     if full_report:
         with st.expander("查看完整周报"):
             st.markdown(full_report)
+
+
+def _extract_weekly_report_range(full_report: str) -> str | None:
+    """从周报一级标题中提取日期范围。"""
+    for line in full_report.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("# "):
+            continue
+        title = stripped[2:].strip()
+        if title.endswith("周报"):
+            title = title.removesuffix("周报").strip()
+        if " ~ " in title:
+            start, end = title.split(" ~ ", 1)
+            if start and end:
+                return f"{start.strip()} ~ {end.strip()}"
+    return None
 
 
 def _parse_weekly_summary(summary: str) -> list[tuple[str, str]]:
@@ -177,18 +223,21 @@ def _render_feedback_day_card(day_date, day_rows: pd.DataFrame):
             content = row["recommendation_content"]
             actual = row["actual_action"]
             if isinstance(content, str) and content.lstrip().startswith("【运动建议】"):
-                st.markdown(f"{content}  \n**实际执行：** {actual or '—'}")
+                st.markdown(f"**个性化建议：**  \n{content}  \n**实际执行：** {actual or '—'}")
             else:
-                st.markdown(f"{prefix}**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
+                st.markdown(
+                    f"{prefix}**个性化建议：** {content or '—'}  \n**实际执行：** {actual or '—'}"
+                )
             if rtype == "non-exercise" and not row.get("compliance"):
                 st.info("💡 非运动类建议无法自动计算合规度")
 
             user_fb = row["user_feedback"]
             rating = row["user_rating"]
-            if user_fb or rating:
+            stars = _rating_stars(rating)
+            if user_fb or stars:
                 parts = []
-                if rating:
-                    parts.append("⭐" * rating)
+                if stars:
+                    parts.append(stars)
                 if user_fb:
                     parts.append(user_fb)
                 st.caption("用户反馈：" + " | ".join(parts))
@@ -233,17 +282,18 @@ def _render_feedback_card(row: pd.Series):
         content = row["recommendation_content"]
         actual = row["actual_action"]
         if isinstance(content, str) and content.lstrip().startswith("【运动建议】"):
-            st.markdown(f"{content}  \n**实际执行：** {actual or '—'}")
+            st.markdown(f"**个性化建议：**  \n{content}  \n**实际执行：** {actual or '—'}")
         else:
-            st.markdown(f"**建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
+            st.markdown(f"**个性化建议：** {content or '—'}  \n**实际执行：** {actual or '—'}")
 
         # 用户反馈
         user_fb = row["user_feedback"]
         rating = row["user_rating"]
-        if user_fb or rating:
+        stars = _rating_stars(rating)
+        if user_fb or stars:
             parts = []
-            if rating:
-                parts.append("⭐" * rating)
+            if stars:
+                parts.append(stars)
             if user_fb:
                 parts.append(user_fb)
             st.caption("用户反馈：" + " | ".join(parts))
@@ -340,12 +390,19 @@ def _render_goal_progress():
                         label="当前值",
                         value=f"{current:.1f}" if current is not None else "—",
                         delta=delta,
+                        delta_color=_goal_delta_color(goal["direction"]),
+                        help=GOAL_PROGRESS_HELP,
                     )
 
                 with col2:
                     st.metric(
                         label="进度",
                         value=f"{pct:.0f}%" if pct is not None else "—",
+                        help=(
+                            "进度按当前值、基线、目标值和目标方向计算。"
+                            "降低目标：当前值越接近或低于目标，进度越高；高于基线会显示方向走反。"
+                            "提升目标反向计算；稳定目标在基线附近视为达成。"
+                        ),
                     )
 
                 with col3:

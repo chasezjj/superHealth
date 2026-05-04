@@ -12,6 +12,7 @@ import streamlit as st
 
 from superhealth import database as db
 from superhealth.collectors.fetch_garmin import BASE_DIR
+from superhealth.dashboard.data_loader import get_available_lab_metrics
 
 DB_PATH = BASE_DIR / "health.db"
 
@@ -58,6 +59,89 @@ def _save_condition(
         follow_up_department=follow_up_department or None,
         notes=notes or None,
     )
+
+
+def _load_condition_mappings(condition_name: str) -> pd.DataFrame:
+    with db.get_conn(DB_PATH) as conn:
+        rows = db.query_condition_metric_mappings(conn, condition_name=condition_name)
+    if not rows:
+        return pd.DataFrame(
+            columns=["metric_key", "display_name", "enabled", "priority", "notes"]
+        )
+    return pd.DataFrame(rows)[["metric_key", "display_name", "enabled", "priority", "notes"]]
+
+
+def _render_metric_mapping_editor(df_conditions: pd.DataFrame) -> None:
+    st.subheader("趋势指标绑定")
+    st.caption("只绑定可数值化的指标；没有数值记录的项目不会在化验趋势中画图。")
+
+    metric_labels = get_available_lab_metrics()
+    key_to_label = {k: f"{v} ({k})" for k, v in metric_labels.items()}
+    label_to_key = {v: k for k, v in key_to_label.items()}
+    if not key_to_label:
+        st.info("暂无可配置的趋势指标。")
+        return
+
+    condition_name = st.selectbox(
+        "选择病情",
+        options=df_conditions["name"].tolist(),
+        key="condition_metric_mapping_condition",
+    )
+    mappings = _load_condition_mappings(condition_name)
+    editor_df = mappings.copy()
+    editor_df["metric_label"] = editor_df["metric_key"].map(key_to_label)
+    editor_df = editor_df[["metric_label", "display_name", "enabled", "priority", "notes"]]
+
+    edited = st.data_editor(
+        editor_df,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="dynamic",
+        column_config={
+            "metric_label": st.column_config.SelectboxColumn(
+                "趋势指标", options=list(label_to_key.keys()), required=True, width="medium"
+            ),
+            "display_name": st.column_config.TextColumn("显示名称", width="medium"),
+            "enabled": st.column_config.CheckboxColumn("启用", default=True, width="small"),
+            "priority": st.column_config.NumberColumn(
+                "排序", min_value=1, max_value=999, step=1, default=100, width="small"
+            ),
+            "notes": st.column_config.TextColumn("备注", width="large"),
+        },
+        key=f"condition_metric_mappings_{condition_name}",
+    )
+
+    if st.button("保存趋势指标绑定", type="primary", key="btn_save_condition_metrics"):
+        try:
+            with db.get_conn(DB_PATH) as conn:
+                conn.execute(
+                    "DELETE FROM condition_metric_mappings WHERE condition_name = ?",
+                    (condition_name,),
+                )
+                for _, row in edited.iterrows():
+                    metric_label = row.get("metric_label")
+                    if not metric_label or pd.isna(metric_label):
+                        continue
+                    metric_key = label_to_key.get(str(metric_label))
+                    if not metric_key:
+                        continue
+                    db.upsert_condition_metric_mapping(
+                        conn,
+                        condition_name=condition_name,
+                        metric_key=metric_key,
+                        display_name=row.get("display_name") or None,
+                        enabled=bool(row.get("enabled", True)),
+                        priority=(
+                            int(row["priority"])
+                            if pd.notna(row.get("priority"))
+                            else 100
+                        ),
+                        notes=row.get("notes") or None,
+                    )
+            st.success("已保存趋势指标绑定")
+            st.rerun()
+        except Exception as e:
+            st.error(f"保存失败：{e}")
 
 
 def render() -> None:
@@ -154,6 +238,9 @@ def render() -> None:
             st.rerun()
         except Exception as e:
             st.error(f"保存失败：{e}")
+
+    st.divider()
+    _render_metric_mapping_editor(df)
 
     # ── 删除 ─────────────────────────────────────────────────────────
     st.divider()

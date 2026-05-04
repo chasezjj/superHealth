@@ -71,12 +71,11 @@ INSERT INTO annual_checkups (
 
 -- 阶段性目标
 INSERT INTO goals (
-    name, description, status, metric_key, direction,
+    name, status, metric_key, direction,
     baseline_value, target_value, start_date, target_date
 ) VALUES
 (
-    '降低静息心率', '通过规律有氧运动将静息心率降至55以下',
-    'active', 'hr_resting', 'decrease',
+    '降低静息心率', 'active', 'hr_resting', 'decrease',
     62, 55, '2025-01-01', '2025-06-30'
 );
 

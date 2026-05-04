@@ -28,6 +28,14 @@ class TestDatabaseInit:
         assert "medications" in table_names
         assert "goals" in table_names
 
+    def test_goals_table_has_no_description_column(self, tmp_db):
+        with db.get_conn(tmp_db) as conn:
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(goals)").fetchall()
+            }
+        assert "description" not in columns
+
 
 class TestVitalsOperations:
     def test_insert_and_query_vitals(self, tmp_db):

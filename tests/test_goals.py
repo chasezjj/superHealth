@@ -1,4 +1,5 @@
 """测试 Goals 子系统。"""
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -81,6 +82,58 @@ class TestGoalManagerAddGoal:
             direction="decrease", baseline_value=130, target=120,
         )
         assert goal_id is not None
+
+    def test_add_goal_writes_today_progress_when_data_available(self, tmp_db):
+        mgr = GoalManager(tmp_db)
+        today = date.today()
+        with db.get_conn(tmp_db) as conn:
+            for offset in range(3):
+                day = today - timedelta(days=offset)
+                db.insert_vital(conn, measured_at=f"{day.isoformat()} 08:00:00", systolic=120)
+
+        goal_id = mgr.add_goal(
+            name="降压目标",
+            metric_key="bp_systolic_mean_7d",
+            direction="decrease",
+            baseline_value=130,
+            target=110,
+        )
+
+        progress = mgr.get_goal_progress(goal_id, days=1)
+        assert len(progress) == 1
+        assert progress[0]["date"] == today.isoformat()
+        assert progress[0]["current_value"] == 120
+
+    def test_add_goal_migrates_legacy_goals_columns(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        with db.get_conn(db_path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE goals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    metric_key TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    baseline_value REAL,
+                    start_date TEXT NOT NULL
+                )
+                """
+            )
+
+        mgr = GoalManager(db_path)
+        goal_id = mgr.add_goal(
+            name="旧库目标",
+            metric_key="steps_mean_7d",
+            direction="increase",
+            baseline_value=8000,
+            target=10000,
+        )
+
+        goal = mgr.get_goal(goal_id)
+        assert goal is not None
+        assert "description" not in goal
+        assert goal["status"] == "active"
+        assert goal["target_value"] == 10000
 
     def test_add_goal_invalid_metric(self, tmp_db):
         mgr = GoalManager(tmp_db)

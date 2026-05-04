@@ -18,7 +18,7 @@
     [vitals]
     api_token = "your-secret-token"   # Health Auto Export 鉴权 token
     host      = "0.0.0.0"             # 监听地址（默认全部接口）
-    port      = 5000                  # 监听端口
+    port      = 8506                  # 监听端口
 
 环境变量 fallback（仅在 toml 字段为空时生效）：
     HEALTHY_GARMIN_EMAIL / HEALTHY_GARMIN_PASSWORD
@@ -116,7 +116,7 @@ class WechatConfig:
 class VitalsConfig:
     api_token: str = ""  # Health Auto Export 鉴权 token（X-API-Key header）
     host: str = "0.0.0.0"
-    port: int = 5000
+    port: int = 8506
 
     def is_complete(self) -> bool:
         return bool(self.api_token)
@@ -228,7 +228,7 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
         or os.environ.get("HEALTHY_VITALS_API_TOKEN", ""),
         host=vitals_raw.get("host", "") or os.environ.get("HEALTHY_VITALS_HOST", "") or "0.0.0.0",
         port=int(
-            vitals_raw.get("port", 0) or os.environ.get("HEALTHY_VITALS_PORT", 0) or 5000
+            vitals_raw.get("port", 0) or os.environ.get("HEALTHY_VITALS_PORT", 0) or 8506
         ),
     )
 

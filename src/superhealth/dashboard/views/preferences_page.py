@@ -50,6 +50,7 @@ def render():
     # ── 加载数据 ──
     exclude_status = "reverted" if status_mode in ("all_exclude_reverted", "active") else None
     df = load_learned_preferences(preference_type=pref_type, status=exclude_status)
+    has_any_visible_preferences = _has_any_visible_preferences()
 
     if status_mode == "reverted":
         df_all = load_learned_preferences(preference_type=pref_type, status=None)
@@ -67,9 +68,14 @@ def render():
 
     # ── 统计栏 ──
     if df.empty:
-        st.info(
-            "暂无学习到的偏好数据。运行 `python -m superhealth.feedback.strategy_learner` 生成。"
-        )
+        if has_any_visible_preferences:
+            st.info(
+                "当前筛选条件下没有匹配的个人偏好。可降低最低置信度，或切换偏好类别、状态后再查看。"
+            )
+        else:
+            st.info(
+                "个人偏好还在学习中：策略学习至少需要 8 条运动反馈才会启动，且各偏好维度还需要足够的有效运动与效果追踪样本。请继续积累数据；样本足够后每日流水线会自动更新，也可运行 `python -m superhealth.feedback.strategy_learner` 手动分析。"
+            )
     else:
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -93,6 +99,14 @@ def render():
                 for _, row in group.iterrows():
                     _render_preference_card(row)
 
+
+
+def _has_any_visible_preferences() -> bool:
+    """是否存在页面会展示的偏好类型，用于区分空数据和筛选无结果。"""
+    all_df = load_learned_preferences(preference_type=None, status=None)
+    if all_df.empty:
+        return False
+    return not all_df[~all_df["preference_type"].isin(_HIDDEN_TYPES)].empty
 
 
 def _render_preference_card(row):

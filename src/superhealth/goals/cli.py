@@ -64,7 +64,6 @@ def cmd_add(args):
             direction=args.direction,
             target=args.target,
             target_date=args.target_date,
-            description=args.description,
             baseline_value=args.baseline,
         )
         print(f"目标已创建 (id={goal_id})")
@@ -269,7 +268,6 @@ def main():
     p_add.add_argument("--direction", required=True, choices=["decrease", "increase", "stabilize"])
     p_add.add_argument("--target", type=float, help="目标值")
     p_add.add_argument("--target-date", help="期望达成日期 YYYY-MM-DD")
-    p_add.add_argument("--description", help="目标说明")
     p_add.add_argument("--baseline", type=float, help="手动指定基线（默认自动从近7天数据计算）")
 
     # progress

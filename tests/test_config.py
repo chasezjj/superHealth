@@ -112,7 +112,7 @@ class TestLoadConfig:
         conf = cfg.load(toml_file)
         assert conf.vitals.api_token == "tok"
         assert conf.vitals.host == "0.0.0.0"
-        assert conf.vitals.port == 5000
+        assert conf.vitals.port == 8506
 
     def test_load_vitals_port_coerced_to_int(self, tmp_path):
         # 文件里写字符串端口，应被转成 int

@@ -12,7 +12,6 @@ class Goal(BaseModel):
 
     id: Optional[int] = None
     name: str
-    description: Optional[str] = None
     status: str = "active"
     metric_key: str
     direction: str = Field(description="decrease/increase/stabilize")

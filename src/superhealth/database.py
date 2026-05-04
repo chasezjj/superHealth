@@ -29,7 +29,6 @@ _MEDICATION_EFFECT_COLS = {
     "expected_effect", "actual_effect", "is_effective", "note",
 }
 
-
 def _validate_kwargs(kwargs: dict, allowed: set[str], func_name: str) -> dict:
     """Validate kwargs keys against allowed column names."""
     invalid = set(kwargs.keys()) - allowed
@@ -1173,6 +1172,92 @@ def query_multiple_metrics(
         字典，key 为指标代码，value 为该指标的时间序列列表
     """
     return {key: query_lab_trends_unified(conn, key, start_date, end_date) for key in metric_keys}
+
+
+def upsert_condition_metric_mapping(
+    conn: sqlite3.Connection,
+    *,
+    condition_name: str,
+    metric_key: str,
+    display_name: str | None = None,
+    enabled: bool = True,
+    priority: int = 100,
+    notes: str | None = None,
+) -> None:
+    """写入或更新病情与可趋势化指标的绑定。"""
+    if not condition_name.strip():
+        raise ValueError("upsert_condition_metric_mapping: condition_name is required")
+    if metric_key not in _OBSERVATION_METRICS:
+        raise ValueError(
+            f"upsert_condition_metric_mapping: unknown metric_key {metric_key!r}"
+        )
+    conn.execute(
+        """
+        INSERT INTO condition_metric_mappings
+            (condition_name, metric_key, display_name, enabled, priority, notes, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        ON CONFLICT(condition_name, metric_key) DO UPDATE SET
+            display_name = excluded.display_name,
+            enabled      = excluded.enabled,
+            priority     = excluded.priority,
+            notes        = excluded.notes,
+            updated_at   = datetime('now','localtime')
+        """,
+        (
+            condition_name.strip(),
+            metric_key,
+            display_name or None,
+            1 if enabled else 0,
+            int(priority),
+            notes or None,
+        ),
+    )
+
+
+def query_condition_metric_mappings(
+    conn: sqlite3.Connection,
+    *,
+    condition_name: str | None = None,
+    enabled_only: bool = False,
+    active_conditions_only: bool = False,
+) -> list[dict]:
+    """查询病情-趋势指标绑定，可限制为 active 病情和启用绑定。"""
+    joins = ""
+    where: list[str] = []
+    params: list[Any] = []
+    if active_conditions_only:
+        joins = (
+            "JOIN medical_conditions c "
+            "ON c.name = m.condition_name AND c.status = 'active'"
+        )
+    if condition_name:
+        where.append("m.condition_name = ?")
+        params.append(condition_name)
+    if enabled_only:
+        where.append("m.enabled = 1")
+
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    rows = conn.execute(
+        f"""
+        SELECT m.*
+        FROM condition_metric_mappings m
+        {joins}
+        {where_sql}
+        ORDER BY m.priority, m.condition_name, m.metric_key
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_condition_metric_mapping(
+    conn: sqlite3.Connection, condition_name: str, metric_key: str
+) -> None:
+    """删除一条病情-趋势指标绑定。"""
+    conn.execute(
+        "DELETE FROM condition_metric_mappings WHERE condition_name = ? AND metric_key = ?",
+        (condition_name, metric_key),
+    )
 
 
 # ─── 同步日志 CRUD ───────────────────────────────────────────────────

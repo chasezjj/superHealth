@@ -425,7 +425,7 @@ class BaseHealthAdvisor(ABC):
             '    "type": "运动类型",\n'
             '    "intensity": "强度等级（1-10）",\n'
             '    "duration": "建议时长",\n'
-            '    "specific": "具体动作建议",\n'
+            '    "specific": "具体动作建议；运动小节请使用「热身：... 主项/主训练：... 整理/冷身：...」这类自然冒号标题，不要使用【热身】、【主训练】、【冷身】等方括号标题",\n'
             '    "reasoning": "建议逻辑（基于哪些模型/画像）"\n'
             "  },\n"
             '  "recovery": {"needed": true/false, "actions": ["建议1", "建议2"]},\n'

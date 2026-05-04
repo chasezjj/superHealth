@@ -1,5 +1,4 @@
 """扩展测试 database.py 中未覆盖的 CRUD 函数。"""
-from pathlib import Path
 
 import pytest
 
@@ -283,6 +282,34 @@ class TestQueryLabTrends:
         with db.get_conn(tmp_db) as conn:
             with pytest.raises(ValueError, match="未知的指标代码"):
                 db.query_lab_trends_unified(conn, "unknown_metric")
+
+
+class TestConditionMetricMappings:
+    def test_upsert_and_query_active_condition_mappings(self, tmp_db):
+        with db.get_conn(tmp_db) as conn:
+            db.upsert_medical_condition(conn, name="高尿酸血症", status="active")
+            db.upsert_medical_condition(conn, name="旧病情", status="resolved")
+            db.upsert_condition_metric_mapping(
+                conn, condition_name="高尿酸血症", metric_key="uric_acid", priority=10
+            )
+            db.upsert_condition_metric_mapping(
+                conn, condition_name="旧病情", metric_key="iop", priority=20
+            )
+
+            rows = db.query_condition_metric_mappings(
+                conn, enabled_only=True, active_conditions_only=True
+            )
+
+        assert len(rows) == 1
+        assert rows[0]["condition_name"] == "高尿酸血症"
+        assert rows[0]["metric_key"] == "uric_acid"
+
+    def test_upsert_condition_metric_mapping_rejects_unknown_metric(self, tmp_db):
+        with db.get_conn(tmp_db) as conn:
+            with pytest.raises(ValueError, match="unknown metric_key"):
+                db.upsert_condition_metric_mapping(
+                    conn, condition_name="测试病情", metric_key="not_a_metric"
+                )
 
 
 class TestLoadDailyHealthFromDb:

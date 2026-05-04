@@ -12,14 +12,16 @@ from superhealth.reports.daily_report import (
 def test_build_recommendation_feedback_content_uses_consistent_section_labels():
     content = build_recommendation_feedback_content(
         {
-            "exercise": {"specific": "【热身】5分钟动态拉伸。"},
+            "exercise": {
+                "specific": "热身：5分钟动态拉伸。主项：深蹲3组。整理：静态拉伸。"
+            },
             "recovery": {"actions": ["训练前吃一根香蕉", "训练后补充蛋白质"]},
             "lifestyle": ["上午完成训练", "睡前呼吸放松"],
         }
     )
 
     assert content == (
-        "【运动建议】【热身】5分钟动态拉伸。\n\n"
+        "【运动建议】热身：5分钟动态拉伸。主项：深蹲3组。整理：静态拉伸。\n\n"
         "【恢复建议】训练前吃一根香蕉；训练后补充蛋白质\n\n"
         "【生活建议】上午完成训练；睡前呼吸放松"
     )

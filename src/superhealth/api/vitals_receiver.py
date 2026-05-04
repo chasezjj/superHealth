@@ -9,7 +9,7 @@
 
 生产环境（systemd + gunicorn）：
     pip install gunicorn
-    gunicorn -w 1 -b 0.0.0.0:5000 'superhealth.api.vitals_receiver:create_app()'
+    gunicorn -w 1 -b 0.0.0.0:8506 'superhealth.api.vitals_receiver:create_app()'
 
 Health Auto Export 配置：
     自动化类型: REST API

@@ -16,6 +16,8 @@ from superhealth.database import (
     _OBSERVATION_METRICS,
     DEFAULT_DB_PATH,
     get_conn,
+    query_active_conditions,
+    query_condition_metric_mappings,
     query_lab_trends_unified,
     query_multiple_metrics,
 )
@@ -360,6 +362,46 @@ def load_multiple_unified_trends(
     return dfs
 
 
+@st.cache_data(ttl=0)
+def load_active_conditions() -> pd.DataFrame:
+    """读取当前 active 病情清单。"""
+    with get_conn(DEFAULT_DB_PATH) as conn:
+        rows = query_active_conditions(conn)
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=0)
+def load_active_condition_metric_mappings() -> pd.DataFrame:
+    """读取 active 病情已启用的趋势指标绑定。"""
+    with get_conn(DEFAULT_DB_PATH) as conn:
+        rows = query_condition_metric_mappings(
+            conn, enabled_only=True, active_conditions_only=True
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=0)
+def load_trendable_metrics_for_active_conditions(years: int = 10) -> dict[str, pd.DataFrame]:
+    """读取 active 病情绑定且实际存在数值数据的趋势指标。"""
+    mappings = load_active_condition_metric_mappings()
+    if mappings.empty or "metric_key" not in mappings.columns:
+        return {}
+
+    metric_keys = [
+        key for key in mappings["metric_key"].dropna().unique().tolist()
+        if key in _OBSERVATION_METRICS
+    ]
+    if not metric_keys:
+        return {}
+
+    data = load_multiple_unified_trends(metric_keys, years)
+    return {key: df for key, df in data.items() if not df.empty}
+
+
 def get_available_lab_metrics() -> dict[str, str]:
     """获取可用的化验指标列表（基于 _OBSERVATION_METRICS）。"""
     labels = {
@@ -595,7 +637,7 @@ def load_recent_feedback(days: int = 3) -> pd.DataFrame:
                       user_feedback, user_rating
                FROM recommendation_feedback
                WHERE date >= ? AND date < ?
-               ORDER BY date DESC""",
+               ORDER BY date DESC, id DESC""",
             conn,
             params=(since, today),
         )
@@ -614,7 +656,7 @@ def load_feedback_by_range(start_date: str, end_date: str) -> pd.DataFrame:
                       user_feedback, user_rating
                FROM recommendation_feedback
                WHERE date >= ? AND date <= ?
-               ORDER BY date DESC""",
+               ORDER BY date DESC, id DESC""",
             conn,
             params=(start_date, end_date),
         )

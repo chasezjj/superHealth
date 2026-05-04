@@ -203,7 +203,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_appointments_unique ON appointments(condit
 CREATE TABLE IF NOT EXISTS goals (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
-    description       TEXT,
     status            TEXT NOT NULL DEFAULT 'active',
     metric_key        TEXT NOT NULL,
     direction         TEXT NOT NULL,
@@ -339,6 +338,21 @@ CREATE TABLE IF NOT EXISTS medical_conditions (
 );
 CREATE INDEX IF NOT EXISTS idx_conditions_status ON medical_conditions(status);
 
+-- 病情关联的可趋势化数值指标配置
+CREATE TABLE IF NOT EXISTS condition_metric_mappings (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    condition_name TEXT NOT NULL,
+    metric_key     TEXT NOT NULL,
+    display_name   TEXT,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    priority       INTEGER NOT NULL DEFAULT 100,
+    notes          TEXT,
+    updated_at     TIMESTAMP DEFAULT (datetime('now','localtime')),
+    UNIQUE(condition_name, metric_key)
+);
+CREATE INDEX IF NOT EXISTS idx_condition_metric_condition ON condition_metric_mappings(condition_name);
+CREATE INDEX IF NOT EXISTS idx_condition_metric_enabled ON condition_metric_mappings(enabled);
+
 -- ─── Column Migrations ────────────────────────────────────────────────
 -- 新增列统一写在这里，格式：ALTER TABLE t ADD COLUMN IF NOT EXISTS col type;
 -- 已在建表时包含的列无需重复列出
@@ -378,7 +392,6 @@ ALTER TABLE learned_preferences ADD COLUMN goal_id INTEGER;
 ALTER TABLE learned_preferences ADD COLUMN last_effective_at TEXT;
 
 -- goals：CLI/模型兼容字段
-ALTER TABLE goals ADD COLUMN description TEXT;
 ALTER TABLE goals ADD COLUMN target_date TEXT;
 
 -- goals 表结构迁移：移除废弃字段并补齐缺失列
@@ -386,7 +399,6 @@ DROP TABLE IF EXISTS goals_new;
 CREATE TABLE goals_new (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
-    description       TEXT,
     status            TEXT NOT NULL DEFAULT 'active',
     metric_key        TEXT NOT NULL,
     direction         TEXT NOT NULL,
@@ -399,8 +411,8 @@ CREATE TABLE goals_new (
     created_at        TIMESTAMP DEFAULT (datetime('now','localtime')),
     updated_at        TIMESTAMP DEFAULT (datetime('now','localtime'))
 );
-INSERT INTO goals_new (id, name, description, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
-SELECT id, name, description, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
+INSERT INTO goals_new (id, name, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
+SELECT id, name, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
 DROP TABLE goals;
 ALTER TABLE goals_new RENAME TO goals;
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
