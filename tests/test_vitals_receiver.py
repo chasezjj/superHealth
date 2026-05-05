@@ -1,5 +1,4 @@
 """测试 vitals_receiver 的数据解析函数。"""
-import pytest
 
 from superhealth.api.vitals_receiver import _normalize_ts, _parse_payload
 

@@ -1,8 +1,6 @@
 """测试 causal.py 的纯统计函数和结果对象。"""
-import math
 
 import numpy as np
-import pytest
 
 from superhealth.analysis.causal import (
     GrangerResult,

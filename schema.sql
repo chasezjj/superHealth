@@ -291,6 +291,7 @@ CREATE TABLE IF NOT EXISTS medical_documents (
     doctor          TEXT,
     title           TEXT,                           -- 用户可读标题
     original_path   TEXT,                           -- 原始 PDF/图片相对路径（保留可追溯）
+    file_hash       TEXT,                           -- 上传文件内容 SHA-256；多文件时为组合指纹
     markdown_path   TEXT NOT NULL,                  -- 落盘 .md 路径（系统主消费源）
     extracted_json  TEXT,                           -- LLM 提取的完整 JSON
     confirmed_at    TIMESTAMP,                      -- 用户确认时间
@@ -299,6 +300,7 @@ CREATE TABLE IF NOT EXISTS medical_documents (
 );
 CREATE INDEX IF NOT EXISTS idx_medical_documents_date ON medical_documents(doc_date);
 CREATE INDEX IF NOT EXISTS idx_medical_documents_type ON medical_documents(doc_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_medical_documents_file_hash ON medical_documents(file_hash) WHERE file_hash IS NOT NULL;
 
 -- 通用医学观测/指标表（取代 eye_exams、kidney_ultrasounds、annual_checkups 各列）
 -- 一行 = 一个项目（化验项 / 眼压 / 肾长径 / 心电图结论 ...）
@@ -364,6 +366,10 @@ ALTER TABLE exercises ADD COLUMN details TEXT;
 ALTER TABLE medical_conditions ADD COLUMN follow_up_months INTEGER;
 ALTER TABLE medical_conditions ADD COLUMN follow_up_hospital TEXT;
 ALTER TABLE medical_conditions ADD COLUMN follow_up_department TEXT;
+
+-- medical_documents：上传文件内容指纹，用于 dashboard 判重/幂等保存
+ALTER TABLE medical_documents ADD COLUMN file_hash TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_medical_documents_file_hash ON medical_documents(file_hash) WHERE file_hash IS NOT NULL;
 
 -- 天气表：全天温度区间（来自3日预报接口）
 ALTER TABLE weather ADD COLUMN temp_max REAL;

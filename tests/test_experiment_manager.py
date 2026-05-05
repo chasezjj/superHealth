@@ -1,13 +1,12 @@
 """测试 experiment_manager 的生命周期管理和纯函数。"""
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from superhealth import database as db
 from superhealth.feedback.experiment_manager import (
-    ExperimentManager,
     _METRIC_LABELS,
     _METRIC_TO_CAUSAL_KEY,
+    ExperimentManager,
 )
 
 

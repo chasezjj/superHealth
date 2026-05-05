@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import streamlit as st
 
 # 项目根目录：src/superhealth/dashboard/views/ → 上四级
-_PROJECT_ROOT = Path(__file__).parents[5]
+_PROJECT_ROOT = Path(__file__).parents[4]
 _DATA_ROOT = _PROJECT_ROOT / "data"
 
 DOC_TYPE_LABELS = {
@@ -36,6 +38,7 @@ DOC_TYPE_FOLDER = {
 }
 
 ACCEPTED_MIME = ["application/pdf", "image/png", "image/jpeg", "image/webp", "image/gif"]
+DOCUMENT_EXTRACT_MAX_TOKENS = 8192
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -69,6 +72,70 @@ def _save_original(filename: str, data: bytes) -> str:
         counter += 1
     target.write_bytes(data)
     return str(target.relative_to(_PROJECT_ROOT))
+
+
+def _file_bytes(uploaded_file) -> bytes:
+    """Read uploaded file bytes without leaving the stream at EOF."""
+    if hasattr(uploaded_file, "getvalue"):
+        return cast(bytes, uploaded_file.getvalue())
+    try:
+        pos = uploaded_file.tell()
+    except Exception:
+        pos = None
+    data = uploaded_file.read()
+    if pos is not None:
+        uploaded_file.seek(pos)
+    return cast(bytes, data)
+
+
+def _uploaded_files_hash(uploaded_files) -> str:
+    """Build a stable SHA-256 fingerprint for one upload batch."""
+    return _bytes_batch_hash([_file_bytes(f) for f in uploaded_files])
+
+
+def _bytes_batch_hash(files_data: list[bytes]) -> str:
+    """Build a stable SHA-256 fingerprint for one or more files."""
+    digest = hashlib.sha256()
+    for data in files_data:
+        digest.update(len(data).to_bytes(8, "big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _find_existing_upload(file_hash: str) -> dict[str, Any] | None:
+    from superhealth.database import get_conn, query_medical_document_by_file_hash
+
+    if not file_hash:
+        return None
+    with get_conn() as conn:
+        existing = query_medical_document_by_file_hash(conn, file_hash)
+        if existing:
+            return existing
+
+        rows = conn.execute(
+            """SELECT * FROM medical_documents
+               WHERE file_hash IS NULL
+                 AND original_path IS NOT NULL
+                 AND original_path != ''
+               ORDER BY id DESC"""
+        ).fetchall()
+        for row in rows:
+            paths = [p.strip() for p in str(row["original_path"]).split(";") if p.strip()]
+            try:
+                files_data = [(_PROJECT_ROOT / p).read_bytes() for p in paths]
+            except OSError:
+                continue
+            if _bytes_batch_hash(files_data) != file_hash:
+                continue
+            try:
+                conn.execute(
+                    "UPDATE medical_documents SET file_hash = ? WHERE id = ?",
+                    (file_hash, row["id"]),
+                )
+            except sqlite3.IntegrityError:
+                pass
+            return query_medical_document_by_file_hash(conn, file_hash) or dict(row)
+    return None
 
 
 def _build_markdown(result, doc_date: str, obs_rows: list[dict]) -> str:
@@ -118,6 +185,25 @@ def _build_markdown(result, doc_date: str, obs_rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _has_extracted_content(result: Any) -> bool:
+    empty_markers = (
+        "未检测到文档内容",
+        "无法识别文档内容",
+        "没有检测到文档内容",
+        "未识别到文档内容",
+        "未提供可识别的医学文档内容",
+        "no document content",
+        "no readable content",
+    )
+    summary = str(result.markdown_summary or "").strip()
+    summary_is_empty = not summary or any(marker.lower() in summary.lower() for marker in empty_markers)
+    return bool(
+        result.observations
+        or result.conditions_inferred
+        or not summary_is_empty
+    )
+
+
 # ── main render ─────────────────────────────────────────────────────────────
 
 def render() -> None:
@@ -125,11 +211,12 @@ def render() -> None:
     st.caption("支持 PDF、PNG、JPG、WEBP —— 用 AI 自动提取内容，确认后保存到数据库和 Markdown 文件")
 
     # ── 步骤 1：上传文件 + 选类型 ─────────────────────────────────
+    st.subheader("上传文件")
     with st.container(border=True):
         col_upload, col_type = st.columns([3, 1])
         with col_upload:
             uploaded = st.file_uploader(
-                "选择文件（可多选，同一份报告分多页时一次全选）",
+                "选择文件（可多选，同一份报告分多页时一次全选；尽量将一次门诊的资料放在一起，比如一次高血压门诊，尽量把病历、化验报告、超声放一起上传）",
                 type=["pdf", "png", "jpg", "jpeg", "webp", "gif"],
                 accept_multiple_files=True,
                 key="upload_files",
@@ -146,20 +233,36 @@ def render() -> None:
         st.info("请先上传文件")
         return
 
+    upload_hash = _uploaded_files_hash(uploaded)
+    existing_upload = _find_existing_upload(upload_hash)
+    if existing_upload:
+        st.warning(
+            "这份文件已经导入过，本次不会重复保存。"
+            f"\n\n- 已有记录：`#{existing_upload['id']} {existing_upload.get('title') or ''}`"
+            f"\n- 报告日期：`{existing_upload.get('doc_date') or '未知'}`"
+            f"\n- Markdown：`{existing_upload.get('markdown_path') or '无'}`"
+        )
+        return
+
     # ── 步骤 2：AI 提取（点击触发或 session_state 缓存） ────────────
     extract_key = "extracted_result"
     files_key = "uploaded_names"
 
-    current_names = [f.name for f in uploaded]
+    current_names = [f"{f.name}:{getattr(f, 'size', 0)}" for f in uploaded] + [upload_hash]
     if st.session_state.get(files_key) != current_names:
         # 文件变了，清旧结果
         st.session_state.pop(extract_key, None)
         st.session_state[files_key] = current_names
 
     if extract_key not in st.session_state:
+        st.divider()
+        st.subheader("AI 提取内容")
         if st.button("🤖 AI 提取内容", type="primary"):
             from superhealth.config import load as load_config
-            from superhealth.core.document_extractor import DocumentExtractor
+            from superhealth.core.document_extractor import (
+                DocumentExtractor,
+                resolve_document_model,
+            )
 
             cfg = load_config()
             extractor = DocumentExtractor(cfg.claude)
@@ -170,13 +273,71 @@ def render() -> None:
             files_data = [(f.name, f.read()) for f in uploaded]
             hint = None if doc_type_choice == "auto" else doc_type_choice
 
-            with st.spinner("正在调用 Claude 提取……（PDF 较大时需要约 15–30 秒）"):
+            model_name = resolve_document_model(cfg.claude) or "AI"
+            file_count = len(files_data)
+            total_mb = sum(len(data) for _, data in files_data) / 1024 / 1024
+            progress = st.progress(0, text="准备提取文档…") if file_count > 1 else None
+            spinner_text = (
+                f"正在调用 {model_name} 分批提取 {file_count} 个文件（共 {total_mb:.1f} MB）……"
+                if file_count > 1
+                else f"正在调用 {model_name} 提取……（PDF 较大时需要约 15–30 秒）"
+            )
+            with st.spinner(spinner_text):
                 try:
-                    result = extractor.extract(files_data, hint_doc_type=hint)
+                    if file_count > 1:
+                        def update_progress(done: int, total: int, names: list[str]) -> None:
+                            if progress is None:
+                                return
+                            current = "、".join(names)
+                            progress.progress(
+                                done / total,
+                                text=f"已提取 {done}/{total}：{current}",
+                            )
+
+                        result = extractor.extract_in_batches(
+                            files_data,
+                            hint_doc_type=hint,
+                            max_tokens=DOCUMENT_EXTRACT_MAX_TOKENS,
+                            files_per_request=1,
+                            progress_callback=update_progress,
+                        )
+                    else:
+                        result = extractor.extract(
+                            files_data,
+                            hint_doc_type=hint,
+                            max_tokens=DOCUMENT_EXTRACT_MAX_TOKENS,
+                        )
+                    if not _has_extracted_content(result):
+                        if progress:
+                            progress.empty()
+                        st.warning(
+                            "AI 没有从这次上传中识别出可保存的医学内容。"
+                            "请确认 PDF 不是加密/空白文件，扫描页是否清晰，或当前配置的模型/接口是否支持 PDF/图片识别。"
+                        )
+                        if cfg.claude.base_url:
+                            st.caption(
+                                f"当前使用自定义 Anthropic endpoint：`{cfg.claude.base_url}`\n\n"
+                                "如果该接口不支持视觉或 PDF，可能会返回空结果。"
+                            )
+                        with st.expander("查看 AI 原始返回", expanded=False):
+                            st.json(result.raw)
+                        return
                     st.session_state[extract_key] = result
+                    if progress:
+                        progress.empty()
                     st.rerun()
                 except Exception as e:
-                    st.error(f"提取失败：{e}")
+                    if progress:
+                        progress.empty()
+                    message = str(e)
+                    if "413" in message or "Request Entity Too Large" in message:
+                        st.error(
+                            "提取失败：单个文件仍超过服务端请求体限制。"
+                            "请先压缩 PDF/图片，或把这个文件拆成更小的文件后再上传。"
+                        )
+                        st.caption(message[:500])
+                    else:
+                        st.error(f"提取失败：{e}")
                     return
         return
 
@@ -185,7 +346,7 @@ def render() -> None:
 
     # ── 步骤 3：可编辑确认表单 ───────────────────────────────────
     st.divider()
-    st.subheader("② 确认提取结果")
+    st.subheader("确认提取结果")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -267,6 +428,7 @@ def render() -> None:
     if st.button("✅ 确认并保存", type="primary"):
         _save_confirmed(
             uploaded_files=uploaded,
+            file_hash=upload_hash,
             doc_date=doc_date,
             doc_type=final_doc_type,
             institution=institution,
@@ -282,6 +444,7 @@ def render() -> None:
 def _save_confirmed(
     *,
     uploaded_files,
+    file_hash: str,
     doc_date: str,
     doc_type: str,
     institution: str,
@@ -301,11 +464,20 @@ def _save_confirmed(
 
     effective_title = title or f"{doc_date} {DOC_TYPE_LABELS.get(doc_type, doc_type)}"
 
+    # 0. 判重：保存前再查一次，避免重复点击或多窗口并发。
+    existing_upload = _find_existing_upload(file_hash)
+    if existing_upload:
+        st.warning(
+            "这份文件已经导入过，本次没有重复保存。"
+            f"\n\n- 已有记录：`#{existing_upload['id']} {existing_upload.get('title') or ''}`"
+            f"\n- Markdown：`{existing_upload.get('markdown_path') or '无'}`"
+        )
+        return
+
     # 1. 保存原始文件
     original_paths: list[str] = []
     for f in uploaded_files:
-        f.seek(0)
-        p = _save_original(f.name, f.read())
+        p = _save_original(f.name, _file_bytes(f))
         original_paths.append(p)
     original_path = "; ".join(original_paths) if original_paths else None
 
@@ -327,6 +499,7 @@ def _save_confirmed(
         doc_kwargs: dict[str, Any] = {
             "doc_date": doc_date,
             "doc_type": doc_type,
+            "file_hash": file_hash,
             "markdown_path": str(md_path.relative_to(_PROJECT_ROOT)),
             "title": effective_title,
             "confirmed_at": datetime.now().isoformat(),
@@ -341,7 +514,13 @@ def _save_confirmed(
         if original_path:
             doc_kwargs["original_path"] = original_path
 
-        doc_id = insert_medical_document(conn, **doc_kwargs)
+        try:
+            doc_id = insert_medical_document(conn, **doc_kwargs)
+        except sqlite3.IntegrityError as e:
+            if "file_hash" not in str(e):
+                raise
+            st.warning("这份文件已经导入过，本次没有重复保存。")
+            return
 
         valid_obs = [r for r in obs_rows if r.get("item_name")]
         for obs in valid_obs:

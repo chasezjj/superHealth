@@ -191,7 +191,7 @@ class TestLoadConfig:
             conf = cfg.load(toml_file)
         assert conf.claude.api_key == ""
         assert conf.claude.model == "claude-sonnet-4-6"
-        assert conf.claude.max_tokens == 1024
+        assert conf.claude.max_tokens == 2048
         assert conf.claude.base_url == ""
 
     def test_load_claude_base_url_anthropic_env(self, tmp_path):
@@ -228,7 +228,7 @@ class TestLoadConfig:
         with patch.dict(os.environ, {}, clear=True):
             conf = cfg.load(toml_file)
         assert conf.baichuan.model == "Baichuan-M3-Plus"
-        assert conf.baichuan.max_tokens == 1024
+        assert conf.baichuan.max_tokens == 2048
         assert conf.baichuan.base_url == "https://api.baichuan-ai.com/v1"
 
     def test_load_advisor_default(self, tmp_path):
@@ -524,4 +524,3 @@ class TestAppConfigDefaults:
         assert d.password == ""
         assert d.session_token == ""
         assert d.saved_password == ""
-

@@ -350,13 +350,13 @@ port      = 5000
 [claude]
 api_key   = "sk-ant-..."
 model     = "claude-sonnet-4-6"
-max_tokens = 1024
+max_tokens = 2048
 base_url  = ""                    # 留空用官方，或填代理地址
 
 [baichuan]
 api_key   = "your-baichuan-key"
 model     = "Baichuan-M3-Plus"
-max_tokens = 1024
+max_tokens = 2048
 base_url  = "https://api.baichuan-ai.com/v1"
 
 [advisor]

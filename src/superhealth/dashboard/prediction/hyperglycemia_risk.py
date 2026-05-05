@@ -84,9 +84,12 @@ def _get_latest_glucose() -> tuple[Optional[float], Optional[float]]:
 def _get_glucose_trend() -> tuple[Optional[float], Optional[str]]:
     """空腹血糖近 N 次趋势（基于年度体检）。"""
     df = load_annual_checkups()
-    if df.empty:
+    if df.empty or "fasting_glucose" not in df.columns:
         return None, None
-    vals = df[["checkup_date", "fasting_glucose"]].dropna(subset=["fasting_glucose"])
+    cols = ["fasting_glucose"]
+    if "checkup_date" in df.columns:
+        cols.insert(0, "checkup_date")
+    vals = df[cols].dropna(subset=["fasting_glucose"])
     if len(vals) < 2:
         return None, None
     recent = vals.tail(5)
@@ -179,9 +182,12 @@ def _check_hyperuricemia(df_lab: pd.DataFrame) -> tuple[bool, str]:
 def _check_high_fbg_history() -> tuple[bool, str]:
     """空腹血糖偏高史：近 5 次体检中曾 ≥5.6。"""
     df = load_annual_checkups()
-    if df.empty:
+    if df.empty or "fasting_glucose" not in df.columns:
         return False, ""
-    recent = df[["checkup_date", "fasting_glucose"]].dropna(subset=["fasting_glucose"]).tail(5)
+    cols = ["fasting_glucose"]
+    if "checkup_date" in df.columns:
+        cols.insert(0, "checkup_date")
+    recent = df[cols].dropna(subset=["fasting_glucose"]).tail(5)
     high = recent[recent["fasting_glucose"] >= 5.6]
     if not high.empty:
         max_val = float(high["fasting_glucose"].max())

@@ -94,6 +94,8 @@ def render() -> None:
         submitted = st.form_submit_button("保存", type="primary")
 
     if submitted:
+        if not isinstance(birthdate, date):
+            birthdate = bd_default
         data: dict = {
             "birthdate": birthdate.isoformat(),
             "gender": _GENDER_VALUES[gender_label],

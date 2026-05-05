@@ -1,5 +1,4 @@
 """测试 Pydantic 数据模型的属性和方法。"""
-import pytest
 
 from superhealth.models import (
     ActivityData,

@@ -981,6 +981,7 @@ def query_goal_progress_range(
 _OBSERVATION_METRICS: dict[str, dict[str, Any]] = {
     "uric_acid": {
         "item_names": ["尿酸", "血尿酸", "UA"],
+        "exclude_item_names": ["尿酸碱度"],
         "unit": "μmol/L",
         "ref_low": 208,
         "ref_high": 428,
@@ -1046,7 +1047,7 @@ _OBSERVATION_METRICS: dict[str, dict[str, Any]] = {
         "ref_high": 1.03,
     },
     "fasting_glucose": {
-        "item_names": ["空腹血糖", "血糖", "Glucose", "GLU"],
+        "item_names": ["空腹血糖", "空腹血葡萄糖", "空腹葡萄糖", "血糖", "Fasting Glucose", "FBG", "Glucose", "GLU"],
         "unit": "mmol/L",
         "ref_low": 3.9,
         "ref_high": 6.1,
@@ -1108,6 +1109,14 @@ def query_lab_trends_unified(
     name_conditions = " OR ".join(["o.item_name LIKE ?"] * len(item_names))
     params: list[Any] = [f"%{n}%" for n in item_names]
 
+    exclude_filter = ""
+    exclude_item_names: list[str] = config.get("exclude_item_names", [])
+    if exclude_item_names:
+        exclude_filter = " AND o.item_name NOT IN ({})".format(
+            ",".join(["?"] * len(exclude_item_names))
+        )
+        params.extend(exclude_item_names)
+
     date_filter = ""
     if start_date:
         date_filter += " AND o.obs_date >= ?"
@@ -1124,6 +1133,7 @@ def query_lab_trends_unified(
         LEFT JOIN medical_documents d ON o.document_id = d.id
         WHERE ({name_conditions})
           AND o.value_num IS NOT NULL
+          {exclude_filter}
           {date_filter}
         ORDER BY o.obs_date
     """
@@ -1360,7 +1370,7 @@ ALLOWED_CONDITION_STATUS = {"active", "resolved", "suspected"}
 
 _DOCUMENT_COLS = {
     "doc_date", "doc_type", "institution", "department", "doctor",
-    "title", "original_path", "markdown_path", "extracted_json",
+    "title", "original_path", "file_hash", "markdown_path", "extracted_json",
     "confirmed_at", "note",
 }
 _OBSERVATION_COLS = {
@@ -1370,12 +1380,28 @@ _OBSERVATION_COLS = {
 }
 
 
+def _ensure_medical_document_file_hash(conn: sqlite3.Connection) -> None:
+    """Ensure existing databases support upload deduplication."""
+    try:
+        conn.execute("ALTER TABLE medical_documents ADD COLUMN file_hash TEXT")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e).lower():
+            raise
+    conn.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS idx_medical_documents_file_hash
+           ON medical_documents(file_hash)
+           WHERE file_hash IS NOT NULL"""
+    )
+
+
 def insert_medical_document(conn: sqlite3.Connection, **kwargs) -> int:
     """写入一条医疗文档元数据，返回新行 id。
 
     必填: doc_date, doc_type, markdown_path
     """
     _validate_kwargs(kwargs, _DOCUMENT_COLS, "insert_medical_document")
+    if kwargs.get("file_hash"):
+        _ensure_medical_document_file_hash(conn)
     if kwargs.get("doc_type") not in ALLOWED_DOC_TYPES:
         raise ValueError(
             f"insert_medical_document: doc_type must be one of {ALLOWED_DOC_TYPES}, "
@@ -1479,6 +1505,23 @@ def query_medical_documents(
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def query_medical_document_by_file_hash(
+    conn: sqlite3.Connection, file_hash: str
+) -> dict | None:
+    """按上传文件内容指纹查询已保存的医疗文档。"""
+    if not file_hash:
+        return None
+    _ensure_medical_document_file_hash(conn)
+    row = conn.execute(
+        """SELECT * FROM medical_documents
+           WHERE file_hash = ?
+           ORDER BY id DESC
+           LIMIT 1""",
+        (file_hash,),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def query_observations_by_document(

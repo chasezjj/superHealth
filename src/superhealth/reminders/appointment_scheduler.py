@@ -19,7 +19,7 @@ import argparse
 import logging
 from dataclasses import asdict, is_dataclass
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from dateutil.relativedelta import relativedelta
 
@@ -33,7 +33,7 @@ def _as_mapping(obj: Any) -> dict:
     if isinstance(obj, dict):
         return obj
     if is_dataclass(obj):
-        return asdict(obj)
+        return asdict(cast(Any, obj))
     return dict(obj)
 
 
@@ -90,7 +90,7 @@ def _query_last_exam_date(conn, cond: dict) -> tuple[str | None, int | None]:
 
 def refresh_appointments(dry_run: bool = False) -> list[dict]:
     """推算所有 active 病情的下次应诊日期，写入 appointments 表。"""
-    results = []
+    results: list[dict] = []
     with get_conn() as conn:
         conditions = query_active_conditions(conn) or REMINDER_RULES
         if not conditions:
@@ -100,6 +100,9 @@ def refresh_appointments(dry_run: bool = False) -> list[dict]:
         for cond_obj in conditions:
             cond = _as_mapping(cond_obj)
             name = cond.get("name") or cond.get("condition")
+            if not isinstance(name, str) or not name:
+                log.info("[scheduler] 病情记录缺少 name/condition，跳过")
+                continue
             label = cond.get("label") or name
 
             interval_months = cond.get("follow_up_months") or cond.get("interval_months")

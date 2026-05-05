@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from superhealth.analysis.analyze_garmin import (
-    _parse_markdown, has_meaningful_data, fmt_val, fmt_minutes_hm
+    _parse_markdown,
+    fmt_minutes_hm,
+    fmt_val,
+    has_meaningful_data,
 )
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"

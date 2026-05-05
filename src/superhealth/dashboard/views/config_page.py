@@ -9,10 +9,13 @@ import hashlib
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
+import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
+from typing import cast
 
 import streamlit as st
 
@@ -181,6 +184,40 @@ def _read_log_tail(path: Path, lines: int = 200) -> str:
 # ---------------------------------------------------------------------------
 
 _VITALS_PID_FILE = Path.home() / ".superhealth" / "vitals_receiver.pid"
+_VITALS_LOG_FILE = (
+    Path.home() / ".superhealth" / "logs" / "vitals" / "vitals_receiver.log"
+)
+
+
+def _local_ip() -> str:
+    """返回当前机器面向局域网的 IP；失败时回退到 localhost。"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return cast(str, sock.getsockname()[0])
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return "127.0.0.1"
+
+
+def _public_ip(timeout: float = 1.5) -> str | None:
+    """短超时获取公网 IP；获取失败时返回 None，避免阻塞配置页。"""
+    try:
+        with urllib.request.urlopen("https://api.ipify.org", timeout=timeout) as resp:
+            ip = resp.read(64).decode("utf-8").strip()
+    except OSError:
+        return None
+    return ip or None
+
+
+def _health_auto_export_url(host: str, port: int) -> str:
+    return f"http://{host}:{port}/health_data"
+
+
+def _single_date(value: object, fallback: date) -> date:
+    return value if isinstance(value, date) else fallback
 
 
 def _vitals_pid() -> int | None:
@@ -201,15 +238,20 @@ def _start_vitals_receiver() -> tuple[bool, str]:
     if _vitals_pid() is not None:
         return False, "服务已在运行中"
     try:
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "superhealth.api.vitals_receiver"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        _VITALS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        log_fp = _VITALS_LOG_FILE.open("ab")
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "superhealth.api.vitals_receiver"],
+                stdout=log_fp,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        finally:
+            log_fp.close()
         _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
         _VITALS_PID_FILE.write_text(str(proc.pid))
-        return True, f"服务已启动（PID {proc.pid}）"
+        return True, f"服务已启动（PID {proc.pid}），日志：{_VITALS_LOG_FILE}"
     except Exception as e:
         return False, f"启动失败: {e}"
 
@@ -279,16 +321,16 @@ def render() -> None:
     # Garmin 历史数据同步
     with st.expander("Garmin 历史数据同步"):
         c1, c2 = st.columns(2)
-        sync_start = c1.date_input(
+        sync_start = _single_date(c1.date_input(
             "开始日期",
             value=date.today() - timedelta(days=90),
             key="sync_start",
-        )
-        sync_end = c2.date_input(
+        ), date.today() - timedelta(days=90))
+        sync_end = _single_date(c2.date_input(
             "结束日期",
             value=date.today() - timedelta(days=1),
             key="sync_end",
-        )
+        ), date.today() - timedelta(days=1))
         skip_existing = st.checkbox("跳过已有记录（增量拉取）", value=True, key="sync_skip")
 
         if sync_start <= sync_end:
@@ -420,7 +462,7 @@ def render() -> None:
 **字段说明：**
 - **API Token** — 鉴权密钥，在 Health Auto Export App 中填入相同的值（HTTP Header: `X-API-Key`）。随机生成一个长字符串即可，防止陌生人向服务器写入数据。
 - **Host** — 监听的网络地址。`0.0.0.0` 表示接受来自任何来源的请求（手机和服务器不在同一局域网时需要此设置）；`127.0.0.1` 仅接受本机请求。
-- **Port** — 监听端口，默认 `8506`。手机 App 中填入的 URL 格式为 `http://<服务器IP>:<Port>/health_data`。
+- **Port** — 监听端口，默认 `8506`。手机 App 中填入下方显示的实际 URL。
 """
         )
         c1, c2, c3 = st.columns(3)
@@ -445,6 +487,19 @@ def render() -> None:
             key="cfg_vitals_port",
             help="监听端口，手机 App URL 格式：http://<服务器IP>:<Port>/health_data",
         )
+
+        local_ip = _local_ip()
+        public_ip = _public_ip()
+        st.markdown("**Health Auto Export App URL**")
+        st.caption("局域网 URL")
+        st.code(_health_auto_export_url(local_ip, int(vitals_port)), language="text")
+        st.caption("公网 URL")
+        if public_ip:
+            st.code(_health_auto_export_url(public_ip, int(vitals_port)), language="text")
+        else:
+            st.caption("公网 IP 获取失败；如有固定公网 IP 或域名，请按同样格式填写。")
+        st.caption("接收服务日志")
+        st.code(str(_VITALS_LOG_FILE), language="text")
 
         st.divider()
         pid = _vitals_pid()
@@ -505,7 +560,7 @@ def render() -> None:
             key="cfg_claude_url",
             help="使用代理或私有部署时填写，留空连接官方地址",
         )
-        if st.button("测试 Anthropic 连接", key="btn_test_claude"):
+        if st.button("测试建议引擎连接", key="btn_test_claude"):
             if not claude_key or not claude_model:
                 st.error("请先填写 API Key 和 Model")
             else:
@@ -855,6 +910,7 @@ def render() -> None:
             claude=ClaudeConfig(
                 api_key=claude_key,
                 model=claude_model,
+                vision_model=config.claude.vision_model,
                 max_tokens=int(claude_max_tokens),
                 base_url=claude_base_url,
             ),

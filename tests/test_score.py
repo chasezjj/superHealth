@@ -1,7 +1,5 @@
 """测试 score_state 评分逻辑（纯函数，最重要的业务逻辑）。"""
-import pytest
-from superhealth.analysis.analyze_garmin import score_state, recommend
-
+from superhealth.analysis.analyze_garmin import recommend, score_state
 
 # ─── score_state ───────────────────────────────────────────────────
 

@@ -1,4 +1,6 @@
 """Test kwargs whitelist validation in database CRUD functions."""
+import sqlite3
+
 import pytest
 
 from superhealth import database as db
@@ -20,6 +22,29 @@ class TestKwargsWhitelist:
             rows = conn.execute("SELECT * FROM medical_documents").fetchall()
         assert len(rows) == 1
         assert doc_id == 1
+
+    def test_insert_medical_document_file_hash_dedup(self, tmp_db):
+        with db.get_conn(tmp_db) as conn:
+            first_id = db.insert_medical_document(
+                conn,
+                doc_date="2025-01-01",
+                doc_type="lab",
+                markdown_path="data/lab/2025-01-01.md",
+                file_hash="abc123",
+            )
+            existing = db.query_medical_document_by_file_hash(conn, "abc123")
+            with pytest.raises(sqlite3.IntegrityError):
+                db.insert_medical_document(
+                    conn,
+                    doc_date="2025-01-02",
+                    doc_type="lab",
+                    markdown_path="data/lab/2025-01-02.md",
+                    file_hash="abc123",
+                )
+
+        assert existing is not None
+        assert existing["id"] == first_id
+        assert existing["file_hash"] == "abc123"
 
     def test_bulk_insert_observations_valid(self, tmp_db):
         with db.get_conn(tmp_db) as conn:

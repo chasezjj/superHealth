@@ -1,13 +1,12 @@
 """测试 Goals 子系统。"""
 from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from superhealth import database as db
 from superhealth.goals.manager import GoalManager
-from superhealth.goals.metrics import GoalMetricRegistry, METRIC_REGISTRY
-from superhealth.goals.models import VALID_DIRECTIONS, VALID_STATUSES, Goal, GoalProgress
+from superhealth.goals.metrics import METRIC_REGISTRY, GoalMetricRegistry
+from superhealth.goals.models import Goal
 
 
 @pytest.fixture

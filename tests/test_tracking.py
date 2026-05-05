@@ -1,5 +1,4 @@
 """测试 tracking/medication_tracker 的 CRUD 和分析功能。"""
-from unittest.mock import patch
 
 import pytest
 

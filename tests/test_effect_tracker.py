@@ -1,8 +1,6 @@
 """测试 effect_tracker 的可测试纯函数逻辑。"""
 import math
 
-import pytest
-
 from superhealth.feedback.effect_tracker import EffectTracker
 
 

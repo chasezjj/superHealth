@@ -595,14 +595,7 @@ class HealthProfileBuilder:
             bc.priority_training = "balanced"
 
     def _load_genetic_markers(self, profile: HealthProfile):
-        """从基因报告 markdown 解析基因标记。"""
-        gene_file = GENETIC_DIR / "gene-testing-2024.md"
-        if not gene_file.exists():
-            return
-
-        text = gene_file.read_text(encoding="utf-8")
-
-        # 解析已知高风险基因模式
+        """从结构化基因观测优先加载基因风险；无结构化数据时回退解析 markdown。"""
         gene_patterns = {
             "GSTM1": r"GSTM1[^\n]*Null",
             "GSTT1": r"GSTT1[^\n]*Null",
@@ -611,17 +604,93 @@ class HealthProfileBuilder:
             "P53": r"P53[^\n]*CG型",
             "XPD": r"XPD[^\n]*AA型",
         }
-        found_genes = []
-        for gene, pattern in gene_patterns.items():
-            if re.search(pattern, text):
-                profile.genetic_markers[gene] = "risk_variant"
+        found_genes: list[str] = []
+        high_risk_items: list[str] = []
+        source_paths: set[str] = set()
+
+        def add_gene(gene: str, marker: str = "risk_variant"):
+            if gene not in profile.genetic_markers:
+                profile.genetic_markers[gene] = marker
                 found_genes.append(gene)
+
+        # 优先读取上传后确认的结构化结果。当前上传流程已把基因报告拆成
+        # medical_observations，比固定文件名 markdown 更可靠。
+        try:
+            with self._get_conn() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT o.item_name, o.value_text, o.note, o.is_abnormal,
+                           d.markdown_path
+                    FROM medical_observations o
+                    LEFT JOIN medical_documents d ON o.document_id = d.id
+                    WHERE o.category = 'genetic'
+                    ORDER BY o.is_abnormal DESC, o.obs_date DESC, o.id
+                    """
+                ).fetchall()
+        except Exception as e:
+            log.debug("基因观测查询失败: %s", e)
+            rows = []
+
+        for row in rows:
+            item_name = row["item_name"] or ""
+            value_text = row["value_text"] or ""
+            note = row["note"] or ""
+            is_high_risk = bool(row["is_abnormal"]) or any(
+                token in value_text for token in ("风险较高", "高风险")
+            )
+            if not is_high_risk:
+                continue
+
+            if item_name and item_name not in high_risk_items:
+                high_risk_items.append(item_name)
+            if row["markdown_path"]:
+                source_paths.add(row["markdown_path"])
+
+            text = "\n".join([item_name, value_text, note])
+            for gene, pattern in gene_patterns.items():
+                if re.search(pattern, text):
+                    add_gene(gene)
+
+            for gene in re.findall(
+                r"\b([A-Za-z][A-Za-z0-9-]*(?:/[A-Za-z0-9-]+)?)\s+rs\d+",
+                note,
+            ):
+                add_gene(gene)
+
+        if found_genes or high_risk_items:
+            if not found_genes:
+                for item in high_risk_items:
+                    add_gene(item, "elevated_cancer_risk")
+
+            finding_parts = []
+            if found_genes:
+                finding_parts.append(f"相关基因/位点：{', '.join(found_genes)}")
+            if high_risk_items:
+                preview = "、".join(high_risk_items[:8])
+                more = f"等 {len(high_risk_items)} 项" if len(high_risk_items) > 8 else ""
+                finding_parts.append(f"高风险项目：{preview}{more}")
+            profile.add_source(
+                "基因特征",
+                "；".join(finding_parts),
+                "；".join(sorted(source_paths)) or "medical_observations",
+            )
+            return
+
+        # 兼容旧数据：扫描 genetic-data 下所有 markdown，而不是依赖固定文件名。
+        if not GENETIC_DIR.exists():
+            return
+
+        for gene_file in sorted(GENETIC_DIR.glob("*.md")):
+            text = gene_file.read_text(encoding="utf-8")
+            for gene, pattern in gene_patterns.items():
+                if re.search(pattern, text):
+                    add_gene(gene)
 
         if found_genes:
             profile.add_source(
                 "基因特征",
                 f"肿瘤易感基因变异：{', '.join(found_genes)}（详见基因报告）",
-                "data/genetic-data/gene-testing-2024.md",
+                "data/genetic-data/*.md",
             )
 
     def _load_learned_preferences(self, profile: HealthProfile):

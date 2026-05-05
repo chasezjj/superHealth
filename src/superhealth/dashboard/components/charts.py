@@ -440,6 +440,8 @@ def chart_medical_timeline(
     checkups: pd.DataFrame,
     eye_exams: pd.DataFrame,
     lab_results: pd.DataFrame,
+    *,
+    include_eye_exams: bool = False,
 ) -> go.Figure:
     """就医时间线（年度体检 + 眼科 + 化验）。"""
     import plotly.express as px
@@ -455,16 +457,34 @@ def chart_medical_timeline(
                 Resource="体检",
             )
         )
-    for _, row in eye_exams.iterrows():
-        d = str(row["date"])[:10]
-        records.append(
-            dict(
-                Task="眼科随访",
-                Start=d,
-                Finish=str(pd.Timestamp(d) + pd.Timedelta(days=1))[:10],
-                Resource="眼科",
+    if include_eye_exams:
+        timeline_eye = eye_exams
+        if "source" in timeline_eye.columns:
+            timeline_eye = timeline_eye[~timeline_eye["source"].eq("annual_checkup")]
+        for _, row in timeline_eye.iterrows():
+            d = str(row["date"])[:10]
+            records.append(
+                dict(
+                    Task="眼科随访",
+                    Start=d,
+                    Finish=str(pd.Timestamp(d) + pd.Timedelta(days=1))[:10],
+                    Resource="眼科",
+                )
             )
-        )
+
+    if not lab_results.empty and "date" in lab_results.columns:
+        timeline_labs = lab_results
+        if "source" in timeline_labs.columns:
+            timeline_labs = timeline_labs[timeline_labs["source"].eq("lab")]
+        for d in pd.to_datetime(timeline_labs["date"]).dropna().dt.strftime("%Y-%m-%d").unique():
+            records.append(
+                dict(
+                    Task="化验复查",
+                    Start=d,
+                    Finish=str(pd.Timestamp(d) + pd.Timedelta(days=1))[:10],
+                    Resource="化验",
+                )
+            )
 
     if not records:
         fig = go.Figure()
@@ -475,7 +495,11 @@ def chart_medical_timeline(
     fig = px.timeline(
         df_tl, x_start="Start", x_end="Finish", y="Task", color="Resource", title="就医时间线"
     )
-    fig.update_layout(height=250)
+    fig.update_layout(
+        height=300,
+        margin=dict(l=80, r=180, t=60, b=70),
+        legend=dict(x=1.02, y=1, xanchor="left", yanchor="top"),
+    )
     return fig
 
 
@@ -576,6 +600,18 @@ def chart_unified_lab_trend(
         )
 
     if show_source and "source" in df.columns:
+        df_sorted = df.sort_values("date")
+        fig.add_trace(
+            go.Scatter(
+                x=df_sorted["date"],
+                y=df_sorted["value"],
+                mode="lines",
+                name="趋势",
+                line=dict(color=COLOR_LAB_RESULTS, width=2),
+                hoverinfo="skip",
+            )
+        )
+
         # 按数据来源分组显示
         lab_data = df[~df["source"].isin(["annual_checkup"])]
         checkup_data = df[df["source"] == "annual_checkup"]
@@ -586,9 +622,8 @@ def chart_unified_lab_trend(
                 go.Scatter(
                     x=checkup_data["date"],
                     y=checkup_data["value"],
-                    mode="lines+markers",
+                    mode="markers",
                     name="年度体检",
-                    line=dict(color=COLOR_ANNUAL_CHECKUP, width=2),
                     marker=dict(size=10, symbol="circle"),
                     hovertemplate="%{y:.2f} " + unit + "<br>%{x}<br>来源: 年度体检<extra></extra>",
                 )
@@ -600,16 +635,18 @@ def chart_unified_lab_trend(
                 go.Scatter(
                     x=lab_data["date"],
                     y=lab_data["value"],
-                    mode="lines+markers",
+                    mode="markers",
                     name="门诊化验",
-                    line=dict(color=COLOR_LAB_RESULTS, width=2, dash="dot"),
                     marker=dict(size=9, symbol="diamond"),
                     hovertemplate="%{y:.2f} " + unit + "<br>%{x}<br>来源: 门诊化验<extra></extra>",
                 )
             )
 
         # 异常点标注
-        abnormal = df[df.get("is_abnormal", False) is True]
+        if "is_abnormal" in df.columns:
+            abnormal = df[df["is_abnormal"].fillna(False).astype(bool)]
+        else:
+            abnormal = df.iloc[0:0]
         if not abnormal.empty:
             fig.add_trace(
                 go.Scatter(

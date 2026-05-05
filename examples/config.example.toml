@@ -19,13 +19,13 @@ port      = 5000                  # 监听端口
 [claude]
 api_key = "sk-ant-api03-..."      # Anthropic API Key（高级日报需要）
 model   = "claude-sonnet-4-6"
-max_tokens = 1024
+max_tokens = 2048
 base_url = ""                     # 自定义 endpoint（留空则用官方地址）
 
 [baichuan]
 api_key  = "your-baichuan-key"    # 可选：百川医疗大模型
 model    = "Baichuan-M3-Plus"
-max_tokens = 1024
+max_tokens = 2048
 base_url = "https://api.baichuan-ai.com/v1"
 
 [advisor]

@@ -164,7 +164,8 @@ def _pivot_observations_to_row(obs_list: list[dict], col_map: dict[str, list[str
     for col, names in col_map.items():
         for obs in obs_list:
             name = obs.get("item_name", "")
-            if any(n.lower() in name.lower() or name.lower() in n.lower() for n in names):
+            name_l = name.lower()
+            if any(n.lower() == name_l or n.lower() in name_l for n in names):
                 row[col] = obs.get("value_num") if obs.get("value_num") is not None else obs.get("value_text")
                 break
     return row
@@ -172,15 +173,17 @@ def _pivot_observations_to_row(obs_list: list[dict], col_map: dict[str, list[str
 
 @st.cache_data(ttl=0)
 def load_eye_exams() -> pd.DataFrame:
-    """读取眼科检查记录，以检查日期为行，od_iop/os_iop/od_cd_ratio/os_cd_ratio 为列。"""
+    """读取眼科随访记录，以检查日期为行，排除年度体检中的眼科项目。"""
     with get_conn(DEFAULT_DB_PATH) as conn:
         rows = conn.execute(
             """SELECT o.obs_date AS date, o.item_name, o.laterality,
                       o.value_num, o.value_text,
+                      COALESCE(d.doc_type, 'medical_observations') AS source,
                       d.doctor, d.institution AS hospital
                FROM medical_observations o
                LEFT JOIN medical_documents d ON o.document_id = d.id
                WHERE o.category = 'eye'
+                 AND COALESCE(d.doc_type, 'medical_observations') != 'annual_checkup'
                ORDER BY o.obs_date, o.document_id"""
         ).fetchall()
 
@@ -192,7 +195,11 @@ def load_eye_exams() -> pd.DataFrame:
     meta: dict = {}
     for r in rows:
         by_date[r["date"]].append(dict(r))
-        meta[r["date"]] = {"doctor": r["doctor"], "hospital": r["hospital"]}
+        meta[r["date"]] = {
+            "source": r["source"],
+            "doctor": r["doctor"],
+            "hospital": r["hospital"],
+        }
 
     records = []
     for dt, obs_list in sorted(by_date.items()):

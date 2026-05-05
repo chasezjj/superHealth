@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from superhealth import database as db
 
@@ -546,7 +546,7 @@ class ExperimentManager:
 
             import anthropic
 
-            kwargs = {"api_key": cfg.claude.api_key}
+            kwargs: dict[str, Any] = {"api_key": cfg.claude.api_key}
             if cfg.claude.base_url:
                 kwargs["base_url"] = cfg.claude.base_url
             client = anthropic.Anthropic(**kwargs)

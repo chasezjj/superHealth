@@ -7,12 +7,14 @@ medical_documents + medical_observations 两层 schema 对应的结构。
 from __future__ import annotations
 
 import base64
+import io
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from superhealth.config import ClaudeConfig
 from superhealth.config import load as load_config
@@ -27,6 +29,8 @@ IMAGE_MEDIA_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+DEFAULT_CLAUDE_VISION_MODEL = "claude-opus-4-7"
 
 ALLOWED_DOC_TYPES = (
     "genetic", "annual_checkup", "outpatient", "imaging",
@@ -48,6 +52,9 @@ _SYSTEM_PROMPT = """你是医学文档结构化提取助手。任务：把用户
 7. body_site 解剖位置（eye / kidney / thyroid / liver / lung / heart / breast / prostate / abdomen / brain / spine / 其他英文 slug 或留空）。
 8. laterality: left | right | bilateral 或留空。
 9. doc_type 取值固定枚举：genetic | annual_checkup | outpatient | imaging | lab | discharge | other。
+   - outpatient：门诊病历 / 门诊记录 / 诊断证明 / 处方 / 复诊记录等，以就诊诊断、病情记录、医嘱用药为主。
+   - lab：独立检验/化验报告单；imaging：独立影像、超声、心电等检查报告。
+   - 如果一份资料包含复诊、诊断、处方、医嘱、主诉、现病史、就诊记录等门诊流程线索，整体 doc_type 应为 outpatient；专科检查结果仍按内容填写 observation category。
 10. markdown_summary 用规范 markdown 重排原文要点，便于人阅读，保留所有关键数值与结论。
 11. conditions_inferred 仅当报告中明确写明诊断/印象时填入，避免"推断"。
 
@@ -110,6 +117,50 @@ def _build_content_block(file_path: Path, file_bytes: bytes) -> dict[str, Any]:
     }
 
 
+def _is_custom_endpoint(cfg: ClaudeConfig) -> bool:
+    base_url = (cfg.base_url or "").strip().lower()
+    return bool(base_url and "api.anthropic.com" not in base_url)
+
+
+def _extract_pdf_text(filename: str, file_bytes: bytes) -> str:
+    """从文字型 PDF 本地抽取文本，供不支持 Anthropic document block 的接口使用。"""
+    try:
+        from pypdf import PdfReader
+    except ImportError as e:
+        raise ImportError("需要 pypdf 才能用第三方模型提取 PDF：pip install pypdf") from e
+
+    try:
+        reader = PdfReader(io.BytesIO(file_bytes))
+    except Exception as e:
+        raise ValueError(f"{filename} 不是可读取的 PDF，或文件已损坏/加密：{e}") from e
+
+    pages: list[str] = []
+    for index, page in enumerate(reader.pages, start=1):
+        try:
+            text = page.extract_text() or ""
+        except Exception as e:
+            log.warning("PDF page text extraction failed: %s page %s: %s", filename, index, e)
+            text = ""
+        text = text.strip()
+        if text:
+            pages.append(f"--- 第 {index} 页 ---\n{text}")
+
+    return "\n\n".join(pages).strip()
+
+
+def _build_pdf_text_block(filename: str, file_bytes: bytes) -> dict[str, str]:
+    text = _extract_pdf_text(filename, file_bytes)
+    if not text:
+        raise ValueError(
+            f"{filename} 未提取到文字。该 PDF 可能是扫描件/图片型 PDF；"
+            "请改传清晰图片，或使用支持 Anthropic PDF/vision document block 的模型。"
+        )
+    return {
+        "type": "text",
+        "text": f"以下是文件 {filename} 的 PDF 文本抽取结果：\n\n{text}",
+    }
+
+
 def _strip_code_fence(text: str) -> str:
     """去掉 ```json ... ``` 包装（即使提示词要求不加，也容错）。"""
     text = text.strip()
@@ -119,16 +170,67 @@ def _strip_code_fence(text: str) -> str:
     return text
 
 
+def _extract_balanced_json_object(text: str) -> str:
+    """从混有说明文字的返回中取第一个完整 JSON 对象。"""
+    start = text.find("{")
+    if start < 0:
+        return text
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+
+    return text[start:]
+
+
+def _repair_common_json_issues(text: str) -> str:
+    """修复 LLM 常见 JSON 瑕疵：尾随逗号、值与下个 key 之间漏逗号。"""
+    repaired = text.strip()
+    repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+    repaired = re.sub(r'([}\]"0-9])\s+(?="[^"]+"\s*:)', r"\1, ", repaired)
+    repaired = re.sub(r'([}\]])\s*(?=\{)', r"\1, ", repaired)
+    return repaired
+
+
 def _parse_json_payload(text: str) -> dict[str, Any]:
     cleaned = _strip_code_fence(text)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        # 尝试从文本中抓出第一个完整 JSON 对象
-        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise ValueError(f"LLM 返回非 JSON：{e}\n原文片段：{cleaned[:300]}") from e
+    candidates = [
+        cleaned,
+        _extract_balanced_json_object(cleaned),
+    ]
+    candidates.extend(_repair_common_json_issues(candidate) for candidate in list(candidates))
+
+    last_error: json.JSONDecodeError | None = None
+    for candidate in dict.fromkeys(candidates):
+        try:
+            payload = json.loads(candidate)
+            if not isinstance(payload, dict):
+                raise ValueError("LLM 返回 JSON 不是对象")
+            return cast(dict[str, Any], payload)
+        except json.JSONDecodeError as e:
+            last_error = e
+
+    error_text = str(last_error) if last_error else "unknown JSON error"
+    raise ValueError(f"LLM 返回非 JSON：{error_text}\n原文片段：{cleaned[:500]}") from last_error
 
 
 def _normalize_observation(obs: dict[str, Any]) -> dict[str, Any]:
@@ -159,6 +261,91 @@ def _normalize_doc_type(value: str | None) -> str:
         return "other"
     v = value.strip().lower()
     return v if v in ALLOWED_DOC_TYPES else "other"
+
+
+def _text_contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+    lowered = text.lower()
+    return any(keyword.lower() in lowered for keyword in keywords)
+
+
+def _infer_doc_type_from_payload(payload: dict[str, Any], fallback: str = "other") -> str:
+    """Use conservative textual clues when the model leaves doc_type as other.
+
+    This is intentionally biased only for strong document-type signals. It fixes
+    common OCR/vision misses such as outpatient photos being parsed as generic
+    medical content.
+    """
+    fallback = _normalize_doc_type(fallback)
+    text_parts: list[str] = []
+    for key in ("title", "department", "institution", "doctor", "markdown_summary"):
+        value = payload.get(key)
+        if value:
+            text_parts.append(str(value))
+
+    for obs in payload.get("observations") or []:
+        if not isinstance(obs, dict):
+            continue
+        for key in ("category", "item_name", "value_text", "body_site", "note"):
+            value = obs.get(key)
+            if value:
+                text_parts.append(str(value))
+
+    for condition in payload.get("conditions_inferred") or []:
+        if isinstance(condition, dict):
+            text_parts.extend(str(v) for v in condition.values() if v)
+
+    text = "\n".join(text_parts)
+    if not text.strip():
+        return fallback
+
+    if _text_contains_any(text, ("出院", "入院", "住院", "discharge")):
+        return "discharge"
+    if _text_contains_any(text, ("基因", "genetic", "snp", "rsid")):
+        return "genetic"
+    if _text_contains_any(text, ("体检", "健康检查", "annual checkup", "check-up")):
+        return "annual_checkup"
+
+    lab_signal = _text_contains_any(text, ("检验报告", "化验单", "检验科", "样本号", "参考范围"))
+    imaging_signal = _text_contains_any(text, ("影像报告", "超声报告", "b超", "心电图")) or bool(
+        re.search(r"(?<![a-z0-9])(?:ct|mri)(?![a-z0-9])", text.lower())
+    )
+    outpatient_signal = _text_contains_any(
+        text,
+        (
+            "门诊", "病历", "就诊", "诊断", "主诉", "现病史", "处方", "医嘱", "复诊",
+            "初诊", "随诊", "随访", "复查", "处理意见", "治疗意见", "用药",
+        ),
+    )
+
+    if outpatient_signal and not (lab_signal and not _text_contains_any(text, ("门诊", "就诊", "诊断", "医嘱", "处方"))):
+        return "outpatient"
+    if lab_signal:
+        return "lab"
+    if imaging_signal:
+        return "imaging"
+    return fallback
+
+
+def _resolve_doc_type(payload: dict[str, Any], hint_doc_type: Optional[str] = None) -> str:
+    if hint_doc_type and hint_doc_type != "auto":
+        return _normalize_doc_type(hint_doc_type)
+    normalized = _normalize_doc_type(str(payload.get("doc_type") or ""))
+    if normalized != "other":
+        return normalized
+    return _infer_doc_type_from_payload(payload, fallback=normalized)
+
+
+def resolve_document_model(cfg: ClaudeConfig) -> str:
+    """选择文档/PDF 提取模型。
+
+    兼容 Anthropic 协议的第三方接口通常只配置 model；如果 vision_model 仍是默认 Claude
+    模型且 base_url 指向自定义服务，优先使用用户显式填写的 model。
+    """
+    model = (cfg.model or "").strip()
+    vision_model = (cfg.vision_model or "").strip()
+    if cfg.base_url and model and vision_model == DEFAULT_CLAUDE_VISION_MODEL:
+        return model
+    return vision_model or model
 
 
 class DocumentExtractor:
@@ -205,18 +392,25 @@ class DocumentExtractor:
                 "Claude API key 未配置：请设置 ANTHROPIC_API_KEY 或在 ~/.superhealth/config.toml 的 [claude] 段填写 api_key"
             )
 
+        use_pdf_text_fallback = _is_custom_endpoint(self.cfg)
         content_blocks: list[dict[str, Any]] = []
         for filename, data in files:
-            content_blocks.append(_build_content_block(Path(filename), data))
+            file_path = Path(filename)
+            if use_pdf_text_fallback and file_path.suffix.lower() == ".pdf":
+                content_blocks.append(_build_pdf_text_block(filename, data))
+            else:
+                content_blocks.append(_build_content_block(file_path, data))
 
         instruction = "请按系统提示提取上述医学文档为 JSON。"
+        if use_pdf_text_fallback:
+            instruction += " PDF 已在本地转成文本；请只基于这些文本提取，不要臆测。"
         if hint_doc_type and hint_doc_type != "auto":
             instruction += f" 用户提示文档类型为: {hint_doc_type}。"
         content_blocks.append({"type": "text", "text": instruction})
 
         client = self._get_client()
         message = client.messages.create(
-            model=self.cfg.vision_model or self.cfg.model,
+            model=resolve_document_model(self.cfg),
             max_tokens=max_tokens,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content_blocks}],
@@ -234,7 +428,7 @@ class DocumentExtractor:
         conditions = [c for c in (payload.get("conditions_inferred") or []) if isinstance(c, dict)]
 
         return ExtractionResult(
-            doc_type=_normalize_doc_type(payload.get("doc_type") or hint_doc_type),
+            doc_type=_resolve_doc_type(payload, hint_doc_type),
             doc_date=str(payload.get("doc_date") or "").strip(),
             institution=str(payload.get("institution") or "").strip(),
             department=str(payload.get("department") or "").strip(),
@@ -245,3 +439,125 @@ class DocumentExtractor:
             markdown_summary=str(payload.get("markdown_summary") or "").strip(),
             raw=payload,
         )
+
+    def extract_in_batches(
+        self,
+        files: list[tuple[str, bytes]],
+        *,
+        hint_doc_type: Optional[str] = None,
+        max_tokens: int = 4096,
+        files_per_request: int = 1,
+        progress_callback: Callable[[int, int, list[str]], None] | None = None,
+    ) -> ExtractionResult:
+        """分批提取多个文件，避免一次请求体过大触发代理 413。"""
+        if not files:
+            raise ValueError("至少需要一个文件")
+        if files_per_request < 1:
+            raise ValueError("files_per_request 必须大于等于 1")
+        if len(files) <= files_per_request:
+            result = self.extract(files, hint_doc_type=hint_doc_type, max_tokens=max_tokens)
+            if progress_callback:
+                progress_callback(len(files), len(files), [name for name, _ in files])
+            return result
+
+        extracted: list[tuple[list[str], ExtractionResult]] = []
+        total = len(files)
+        done = 0
+        for start in range(0, total, files_per_request):
+            batch = files[start:start + files_per_request]
+            names = [name for name, _ in batch]
+            result = self.extract(batch, hint_doc_type=hint_doc_type, max_tokens=max_tokens)
+            extracted.append((names, result))
+            done += len(batch)
+            if progress_callback:
+                progress_callback(done, total, names)
+
+        return _merge_extraction_results(extracted, hint_doc_type=hint_doc_type)
+
+
+def _single_common_value(values: list[str]) -> str:
+    non_empty = {v.strip() for v in values if v and v.strip()}
+    return next(iter(non_empty)) if len(non_empty) == 1 else ""
+
+
+def _merge_extraction_results(
+    extracted: list[tuple[list[str], ExtractionResult]],
+    *,
+    hint_doc_type: Optional[str] = None,
+) -> ExtractionResult:
+    if not extracted:
+        raise ValueError("至少需要一个提取结果")
+    if len(extracted) == 1:
+        return extracted[0][1]
+
+    files_count = sum(len(names) for names, _ in extracted)
+    results = [result for _, result in extracted]
+    observations: list[dict[str, Any]] = []
+    conditions: list[dict[str, Any]] = []
+    document_payloads: list[dict[str, Any]] = []
+    summaries: list[str] = []
+
+    for names, result in extracted:
+        source_label = ", ".join(names)
+        for obs in result.observations:
+            item = dict(obs)
+            note = str(item.get("note") or "").strip()
+            source_note = f"来源文件：{source_label}"
+            item["note"] = f"{note}；{source_note}" if note else source_note
+            observations.append(item)
+
+        for condition in result.conditions_inferred:
+            conditions.append(dict(condition))
+
+        summary = result.markdown_summary.strip() or result.title.strip()
+        if summary:
+            summaries.append(f"### {source_label}\n\n{summary}")
+
+        document_payloads.append({
+            "source_files": names,
+            "doc_type": result.doc_type,
+            "doc_date": result.doc_date,
+            "institution": result.institution,
+            "department": result.department,
+            "doctor": result.doctor,
+            "title": result.title,
+            "observations": result.observations,
+            "conditions_inferred": result.conditions_inferred,
+            "markdown_summary": result.markdown_summary,
+            "raw": result.raw,
+        })
+
+    title = f"批量上传 {files_count} 个文档"
+    markdown_summary = "\n\n".join(summaries)
+    raw = {
+        "doc_type": _single_common_value([r.doc_type for r in results]) or "other",
+        "doc_date": _single_common_value([r.doc_date for r in results]),
+        "institution": _single_common_value([r.institution for r in results]),
+        "department": _single_common_value([r.department for r in results]),
+        "doctor": _single_common_value([r.doctor for r in results]),
+        "title": title,
+        "observations": observations,
+        "conditions_inferred": conditions,
+        "markdown_summary": markdown_summary,
+        "documents": document_payloads,
+        "batch_extraction": {"file_count": files_count},
+    }
+    doc_type = _resolve_doc_type(raw, hint_doc_type)
+    raw["doc_type"] = doc_type
+    doc_date = str(raw["doc_date"])
+    institution = str(raw["institution"])
+    department = str(raw["department"])
+    doctor = str(raw["doctor"])
+
+    return ExtractionResult(
+        doc_type=doc_type,
+        doc_date=doc_date,
+        institution=institution,
+        department=department,
+        doctor=doctor,
+        title=title,
+        observations=observations,
+        conditions_inferred=conditions,
+        markdown_summary=markdown_summary,
+        raw=raw,
+    )

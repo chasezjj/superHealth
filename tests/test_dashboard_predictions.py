@@ -1,18 +1,23 @@
 """测试 dashboard/prediction 风险评分器的纯函数逻辑。"""
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from superhealth.dashboard.prediction.hyperglycemia_risk import (
     GLU_DIABETES,
     GLU_NORMAL,
     GLU_PREDIABETES_HBA1C,
     GLU_PREDIABETES_IFG,
+    _check_high_fbg_history,
+    _get_glucose_trend,
+    _glucose_grade,
     _grade_fasting_glucose,
     _grade_hba1c,
-    _glucose_grade,
+)
+from superhealth.dashboard.prediction.hyperglycemia_risk import (
     _risk_stratify as _glu_risk_stratify,
+)
+from superhealth.dashboard.prediction.hyperglycemia_risk import (
     _risk_to_score as _glu_risk_to_score,
 )
 from superhealth.dashboard.prediction.hyperlipidemia_risk import (
@@ -21,7 +26,6 @@ from superhealth.dashboard.prediction.hyperlipidemia_risk import (
     TG_NORMAL,
     TG_VERY_HIGH,
     _ascvd_risk_tier,
-    _check_age_risk,
     _compute_score,
     _grade_tg,
 )
@@ -29,7 +33,6 @@ from superhealth.dashboard.prediction.hypertension_risk import (
     BP_GRADE_1,
     BP_GRADE_2,
     BP_GRADE_3,
-    BP_GRADE_LABELS,
     BP_HIGH_NORMAL,
     BP_NORMAL,
     RISK_HIGH,
@@ -40,6 +43,8 @@ from superhealth.dashboard.prediction.hypertension_risk import (
     _grade_dbp,
     _grade_sbp,
     _risk_stratification,
+)
+from superhealth.dashboard.prediction.hypertension_risk import (
     _risk_to_score as _ht_risk_to_score,
 )
 from superhealth.dashboard.prediction.uric_acid_risk import (
@@ -48,10 +53,13 @@ from superhealth.dashboard.prediction.uric_acid_risk import (
     UA_NORMAL,
     UA_VERY_HIGH,
     _grade_ua,
+)
+from superhealth.dashboard.prediction.uric_acid_risk import (
     _risk_stratify as _ua_risk_stratify,
+)
+from superhealth.dashboard.prediction.uric_acid_risk import (
     _risk_to_score as _ua_risk_to_score,
 )
-
 
 # ─── Hyperglycemia ─────────────────────────────────────────────────
 
@@ -79,6 +87,24 @@ class TestGlucoseGrading:
 
     def test_glucose_grade_takes_max(self):
         assert _glucose_grade(5.5, 7.0) == GLU_DIABETES
+
+
+class TestGlucoseAnnualCheckupMissingColumns:
+    @patch("superhealth.dashboard.prediction.hyperglycemia_risk.load_annual_checkups")
+    def test_glucose_trend_handles_missing_fasting_glucose(self, mock_load):
+        mock_load.return_value = pd.DataFrame(
+            {"checkup_date": pd.to_datetime(["2025-01-01"]), "uric_acid": [460]}
+        )
+
+        assert _get_glucose_trend() == (None, None)
+
+    @patch("superhealth.dashboard.prediction.hyperglycemia_risk.load_annual_checkups")
+    def test_high_fbg_history_handles_missing_fasting_glucose(self, mock_load):
+        mock_load.return_value = pd.DataFrame(
+            {"checkup_date": pd.to_datetime(["2025-01-01"]), "uric_acid": [460]}
+        )
+
+        assert _check_high_fbg_history() == (False, "")
 
 
 class TestGluRiskStratify:

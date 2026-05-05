@@ -1,5 +1,4 @@
 """测试相关性分析模块的纯函数逻辑。"""
-import pytest
 
 from superhealth.analysis.correlation import (
     CorrelationResult,

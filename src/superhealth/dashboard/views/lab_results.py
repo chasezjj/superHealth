@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pandas as pd
 import streamlit as st
 
@@ -159,6 +161,54 @@ def _load_visible_metric_data(years: int) -> dict[str, pd.DataFrame]:
     return load_trendable_metrics_for_active_conditions(years)
 
 
+def _timeline_lab_rows(df_lab: pd.DataFrame, visible_metric_names: set[str]) -> pd.DataFrame:
+    """Only true lab documents should create lab follow-up markers."""
+    if not visible_metric_names or "item_name" not in df_lab.columns:
+        return df_lab.iloc[0:0]
+
+    timeline_lab = df_lab[df_lab["item_name"].isin(visible_metric_names)]
+    if "source" in timeline_lab.columns:
+        timeline_lab = timeline_lab[timeline_lab["source"].eq("lab")]
+    return timeline_lab
+
+
+def _timeline_eye_rows(df_eye: pd.DataFrame) -> pd.DataFrame:
+    """Annual-checkup eye measurements are checkup events, not eye follow-ups."""
+    if df_eye.empty:
+        return df_eye
+    if "source" in df_eye.columns:
+        return df_eye[~df_eye["source"].eq("annual_checkup")]
+    return df_eye
+
+
+def _filter_date_range(df: pd.DataFrame, date_col: str, years: int) -> pd.DataFrame:
+    if df.empty or date_col not in df.columns or years >= 50:
+        return df
+
+    cutoff = pd.Timestamp(date.today() - timedelta(days=365 * years))
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    return df[dates >= cutoff]
+
+
+def _group_metrics_by_condition(data: dict[str, pd.DataFrame]) -> dict[str, list[str]]:
+    mappings = load_active_condition_metric_mappings()
+    if mappings.empty:
+        return {}
+
+    groups: dict[str, list[str]] = {}
+    for _, row in mappings.sort_values(
+        ["priority", "condition_name", "metric_key"]
+    ).iterrows():
+        condition_name = row.get("condition_name")
+        metric_key = row.get("metric_key")
+        if not condition_name or metric_key not in data:
+            continue
+        groups.setdefault(str(condition_name), [])
+        if metric_key not in groups[str(condition_name)]:
+            groups[str(condition_name)].append(metric_key)
+    return groups
+
+
 def _show_no_metric_message() -> None:
     active_conditions = load_active_conditions()
     mappings = load_active_condition_metric_mappings()
@@ -229,7 +279,7 @@ def render():
     df_checkup = load_annual_checkups()
 
     # 时间范围选择
-    col1, col2, col3 = st.columns([1, 1, 2])
+    col1, col2 = st.columns([1, 3])
     with col1:
         time_range = st.selectbox(
             "时间范围",
@@ -258,7 +308,23 @@ def render():
     # 就医时间线
     st.divider()
     st.subheader("📅 就医时间线")
-    fig_tl = chart_medical_timeline(df_checkup, df_eye, df_lab)
+    visible_metric_data = _load_visible_metric_data(years)
+    visible_metric_names = {
+        name
+        for metric in visible_metric_data
+        for name in _LIVER_KIDNEY_METRICS.get(metric, {}).get("item_names", [])
+    }
+    timeline_checkup = _filter_date_range(df_checkup, "checkup_date", years)
+    timeline_eye = _filter_date_range(_timeline_eye_rows(df_eye), "date", years)
+    timeline_lab = _filter_date_range(
+        _timeline_lab_rows(df_lab, visible_metric_names), "date", years
+    )
+    fig_tl = chart_medical_timeline(
+        timeline_checkup,
+        timeline_eye,
+        timeline_lab,
+        include_eye_exams="iop" in visible_metric_data,
+    )
     st.plotly_chart(fig_tl, width="stretch")
 
     # 数据说明
@@ -304,19 +370,25 @@ def _render_merged_view(years: int):
     x_range = (range_start, range_end)
     # 跨度>6年时隔年显示刻度，从起始年开始
     step = 2 if span_years > 6 else 1
-    x_tickvals = [pd.Timestamp(f"{y}-07-01") for y in range(x_min.year, x_max.year + 1, step)]
+    x_tickvals = [
+        pd.Timestamp(f"{y}-07-01")
+        for y in range(x_min.year, x_max.year + 1, step)
+    ]
 
-    metrics_by_group: dict[str, list[str]] = {}
-    for metric in _sorted_metrics(data):
-        group = _metric_display(metric).get("group", "其他指标")
-        metrics_by_group.setdefault(group, []).append(metric)
+    metrics_by_condition = _group_metrics_by_condition(data)
+    if not metrics_by_condition:
+        _show_no_metric_message()
+        return
 
-    col1, col2, col3 = st.columns(3)
-    columns = [col1, col2, col3]
+    condition_names = list(metrics_by_condition.keys())
+    tabs = st.tabs(condition_names) if len(condition_names) > 1 else [st.container()]
 
-    for idx, (group, metrics) in enumerate(metrics_by_group.items()):
-        with columns[idx % 3]:
-            st.subheader(f"{GROUP_ICON.get(group, '📈')} {group}")
+    for tab, condition_name in zip(tabs, condition_names):
+        with tab:
+            st.subheader(condition_name)
+            metrics = _sorted_metrics(
+                {m: data[m] for m in metrics_by_condition[condition_name]}
+            )
             for metric in metrics:
                 _render_metric_chart(
                     metric,
@@ -351,6 +423,60 @@ def _render_single_metric_view(years: int):
     _render_metric_stats(selected_metric, df)
 
 
+def _add_multi_metric_subplot_traces(fig, df: pd.DataFrame, metric: str, row: int) -> None:
+    """Add one chronological trend line plus source-specific markers."""
+    import plotly.graph_objects as go
+
+    color = _metric_display(metric)["color"]
+    label = _metric_display(metric)["label"]
+    df_sorted = df.sort_values("date")
+
+    fig.add_trace(
+        go.Scatter(
+            x=df_sorted["date"],
+            y=df_sorted["value"],
+            mode="lines",
+            name=f"{label} - 趋势",
+            line=dict(color=color, width=2),
+            showlegend=False,
+            hoverinfo="skip",
+        ),
+        row=row,
+        col=1,
+    )
+
+    lab_data = df[~df["source"].isin(["annual_checkup"])]
+    checkup_data = df[df["source"] == "annual_checkup"]
+
+    if not checkup_data.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=checkup_data["date"],
+                y=checkup_data["value"],
+                mode="markers",
+                name=f"{label} - 体检",
+                marker=dict(size=10, symbol="circle"),
+                showlegend=False,
+            ),
+            row=row,
+            col=1,
+        )
+
+    if not lab_data.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=lab_data["date"],
+                y=lab_data["value"],
+                mode="markers",
+                name=f"{label} - 门诊",
+                marker=dict(size=9, symbol="diamond"),
+                showlegend=False,
+            ),
+            row=row,
+            col=1,
+        )
+
+
 def _render_multi_metric_view(years: int):
     """多指标对比：同时显示多个指标。"""
     data = _load_visible_metric_data(years)
@@ -382,7 +508,6 @@ def _render_multi_metric_view(years: int):
         return
 
     # 创建对比图表
-    import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
     # 每个指标一个子图
@@ -402,43 +527,7 @@ def _render_multi_metric_view(years: int):
             continue
 
         config = _LIVER_KIDNEY_METRICS[metric]
-        color = _metric_display(metric)["color"]
-
-        # 分离不同数据源
-        lab_data = df[~df["source"].isin(["annual_checkup"])]
-        checkup_data = df[df["source"] == "annual_checkup"]
-
-        # 年度体检
-        if not checkup_data.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=checkup_data["date"],
-                    y=checkup_data["value"],
-                    mode="lines+markers",
-                    name=f"{_metric_display(metric)['label']} - 体检",
-                    line=dict(color=color, width=2),
-                    marker=dict(size=10, symbol="circle"),
-                    showlegend=False,
-                ),
-                row=i,
-                col=1,
-            )
-
-        # 门诊化验
-        if not lab_data.empty:
-            fig.add_trace(
-                go.Scatter(
-                    x=lab_data["date"],
-                    y=lab_data["value"],
-                    mode="lines+markers",
-                    name=f"{_metric_display(metric)['label']} - 门诊",
-                    line=dict(color=color, width=2, dash="dot"),
-                    marker=dict(size=9, symbol="diamond"),
-                    showlegend=False,
-                ),
-                row=i,
-                col=1,
-            )
+        _add_multi_metric_subplot_traces(fig, df, metric, i)
 
         # 参考范围
         if config.get("ref_high"):

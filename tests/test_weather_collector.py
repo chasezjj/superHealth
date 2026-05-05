@@ -1,5 +1,4 @@
 """测试天气采集器的纯函数逻辑。"""
-import pytest
 
 from superhealth.collectors.weather_collector import (
     _is_outdoor_ok,

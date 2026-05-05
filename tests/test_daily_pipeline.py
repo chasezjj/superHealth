@@ -1,8 +1,5 @@
 """测试 daily_pipeline 的核心流程和辅助函数。"""
-from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from superhealth.daily_pipeline import _log_step, _run_step, fetch_and_log, run_pipeline
 

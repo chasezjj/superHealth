@@ -146,7 +146,7 @@ class ModelSelector:
                     name="LipidModel",
                     label="血脂管理",
                     guide_key="lipid",
-                    reason="血脂异常史（运动控制中）",
+                    reason="血脂异常史",
                 )
             )
 

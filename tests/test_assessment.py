@@ -1,7 +1,6 @@
 """Test assessment models: RecoveryModel scoring logic."""
-import pytest
 
-from superhealth.core.assessment_models import RecoveryModel, AssessmentResult
+from superhealth.core.assessment_models import AssessmentResult, RecoveryModel
 
 
 class MockProfile:

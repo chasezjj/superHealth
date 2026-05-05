@@ -1,5 +1,4 @@
 """测试数据库核心操作。"""
-from pathlib import Path
 
 import pytest
 

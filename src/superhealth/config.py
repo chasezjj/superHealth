@@ -127,7 +127,7 @@ class ClaudeConfig:
     api_key: str = ""  # Anthropic API key
     model: str = "claude-sonnet-4-6"  # 默认模型（文本任务）
     vision_model: str = "claude-opus-4-7"  # 视觉/PDF 文档提取专用模型
-    max_tokens: int = 1024  # 最大输出 token
+    max_tokens: int = 2048  # 最大输出 token
     base_url: str = ""  # 自定义 endpoint（留空则用官方地址）
 
     def is_complete(self) -> bool:
@@ -138,7 +138,7 @@ class ClaudeConfig:
 class BaichuanConfig:
     api_key: str = ""  # 百川 API key
     model: str = "Baichuan-M3-Plus"  # 百川医疗模型名
-    max_tokens: int = 1024  # 最大输出 token
+    max_tokens: int = 2048  # 最大输出 token
     base_url: str = "https://api.baichuan-ai.com/v1"  # 百川 API endpoint
 
     def is_complete(self) -> bool:
@@ -246,7 +246,7 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
         max_tokens=int(
             claude_raw.get("max_tokens", 0)
             or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 0)
-            or 1024
+            or 2048
         ),
         base_url=claude_raw.get("base_url", "")
         or os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -275,7 +275,7 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
         or os.environ.get("BAICHUAN_API_KEY", "")
         or os.environ.get("HEALTHY_BAICHUAN_API_KEY", ""),
         model=baichuan_raw.get("model", "Baichuan-M3-Plus"),
-        max_tokens=int(baichuan_raw.get("max_tokens", 1024)),
+        max_tokens=int(baichuan_raw.get("max_tokens", 2048)),
         base_url=baichuan_raw.get("base_url", "https://api.baichuan-ai.com/v1"),
     )
 
@@ -412,6 +412,7 @@ def save_config(config: AppConfig, config_path: Path = CONFIG_PATH) -> None:
     raw["claude"] = {
         "api_key": config.claude.api_key,
         "model": config.claude.model,
+        "vision_model": config.claude.vision_model,
         "max_tokens": config.claude.max_tokens,
         "base_url": config.claude.base_url,
     }

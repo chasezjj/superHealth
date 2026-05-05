@@ -62,6 +62,31 @@ class TestDeriveDashboardPassword:
 
 
 # ---------------------------------------------------------------------------
+# Health Auto Export URL helpers
+# ---------------------------------------------------------------------------
+
+
+class TestHealthAutoExportUrlHelpers:
+    def test_health_auto_export_url(self):
+        assert (
+            page._health_auto_export_url("192.168.1.10", 8506)
+            == "http://192.168.1.10:8506/health_data"
+        )
+
+    def test_public_ip_returns_none_on_oserror(self):
+        with patch.object(page.urllib.request, "urlopen", side_effect=OSError("offline")):
+            assert page._public_ip() is None
+
+    def test_local_ip_falls_back_to_hostname_lookup(self):
+        with (
+            patch.object(page.socket, "socket", side_effect=OSError("no socket")),
+            patch.object(page.socket, "gethostname", return_value="host"),
+            patch.object(page.socket, "gethostbyname", return_value="10.0.0.8"),
+        ):
+            assert page._local_ip() == "10.0.0.8"
+
+
+# ---------------------------------------------------------------------------
 # _is_healthy_job
 # ---------------------------------------------------------------------------
 
@@ -572,6 +597,14 @@ def isolated_pid_file(tmp_path, monkeypatch):
     return fake
 
 
+@pytest.fixture
+def isolated_vitals_log_file(tmp_path, monkeypatch):
+    """将 vitals_receiver 日志指向 tmp 目录，避免测试影响真实环境。"""
+    fake = tmp_path / "logs" / "vitals" / "vitals_receiver.log"
+    monkeypatch.setattr(page, "_VITALS_LOG_FILE", fake)
+    return fake
+
+
 class TestVitalsPid:
     def test_returns_none_when_pid_file_missing(self, isolated_pid_file):
         assert page._vitals_pid() is None
@@ -613,29 +646,44 @@ class TestVitalsPid:
 
 
 class TestStartVitalsReceiver:
-    def test_refuses_to_start_when_already_running(self, isolated_pid_file):
+    def test_refuses_to_start_when_already_running(
+        self, isolated_pid_file, isolated_vitals_log_file
+    ):
         isolated_pid_file.write_text("12345")
         with patch.object(page.os, "kill", return_value=None):
             ok, msg = page._start_vitals_receiver()
         assert ok is False
         assert "运行" in msg
 
-    def test_starts_and_writes_pid(self, isolated_pid_file):
+    def test_starts_and_writes_pid(self, isolated_pid_file, isolated_vitals_log_file):
         fake_proc = MagicMock(pid=7890)
         with patch.object(page.subprocess, "Popen", return_value=fake_proc) as popen:
             ok, msg = page._start_vitals_receiver()
         assert ok is True
         assert "7890" in msg
+        assert str(isolated_vitals_log_file) in msg
         assert isolated_pid_file.read_text() == "7890"
         # 验证启动命令使用了正确的模块入口
         args, kwargs = popen.call_args
         cmd = args[0]
         assert cmd[-1] == "superhealth.api.vitals_receiver"
         assert cmd[-2] == "-m"
+        assert kwargs.get("stdout").name == str(isolated_vitals_log_file)
+        assert kwargs.get("stderr") == page.subprocess.STDOUT
         # 后台分离 session
         assert kwargs.get("start_new_session") is True
 
-    def test_returns_failure_when_popen_raises(self, isolated_pid_file):
+    def test_creates_log_parent_dir(self, isolated_pid_file, isolated_vitals_log_file):
+        assert not isolated_vitals_log_file.parent.exists()
+        fake_proc = MagicMock(pid=7890)
+        with patch.object(page.subprocess, "Popen", return_value=fake_proc):
+            ok, _ = page._start_vitals_receiver()
+        assert ok is True
+        assert isolated_vitals_log_file.parent.is_dir()
+
+    def test_returns_failure_when_popen_raises(
+        self, isolated_pid_file, isolated_vitals_log_file
+    ):
         with patch.object(page.subprocess, "Popen", side_effect=OSError("boom")):
             ok, msg = page._start_vitals_receiver()
         assert ok is False
@@ -643,7 +691,9 @@ class TestStartVitalsReceiver:
         # 失败时不应留下 PID 文件
         assert not isolated_pid_file.exists()
 
-    def test_creates_parent_dir_for_pid_file(self, tmp_path, monkeypatch):
+    def test_creates_parent_dir_for_pid_file(
+        self, tmp_path, monkeypatch, isolated_vitals_log_file
+    ):
         nested = tmp_path / "deep" / "nested" / "dir" / "vitals.pid"
         monkeypatch.setattr(page, "_VITALS_PID_FILE", nested)
         fake_proc = MagicMock(pid=123)
