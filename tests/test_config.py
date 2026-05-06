@@ -244,35 +244,19 @@ class TestLoadConfig:
             conf = cfg.load(toml_file)
         assert conf.advisor.mode == "both"
 
-    def test_load_weather_lat_lon_floats(self, tmp_path):
+    def test_load_weather_basic_fields(self, tmp_path):
         toml_file = tmp_path / "config.toml"
-        toml_file.write_text(
-            '[weather]\napi_key = "k"\ncity = "上海"\nlatitude = 31.23\nlongitude = 121.47\n'
-        )
+        toml_file.write_text('[weather]\napi_key = "k"\ncity = "上海"\napi_host = "foo.qweatherapi.com"\n')
         conf = cfg.load(toml_file)
         assert conf.weather.api_key == "k"
         assert conf.weather.city == "上海"
-        assert conf.weather.latitude == pytest.approx(31.23)
-        assert conf.weather.longitude == pytest.approx(121.47)
-
-    def test_load_weather_env_lat_lon_coerced_to_float(self, tmp_path):
-        toml_file = tmp_path / "config.toml"
-        with patch.dict(
-            os.environ,
-            {"HEALTHY_WEATHER_LAT": "22.5", "HEALTHY_WEATHER_LON": "114.0"},
-        ):
-            conf = cfg.load(toml_file)
-        assert conf.weather.latitude == pytest.approx(22.5)
-        assert conf.weather.longitude == pytest.approx(114.0)
-        assert isinstance(conf.weather.latitude, float)
+        assert conf.weather.api_host == "foo.qweatherapi.com"
 
     def test_load_weather_defaults_to_beijing(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         with patch.dict(os.environ, {}, clear=True):
             conf = cfg.load(toml_file)
-        # 默认坐标 ≈ 北京
-        assert conf.weather.latitude == pytest.approx(39.92)
-        assert conf.weather.longitude == pytest.approx(116.41)
+        assert conf.weather.city == ""
         assert conf.weather.api_host == ""
 
     def test_load_dashboard_session_token_and_saved_password(self, tmp_path):
@@ -366,11 +350,14 @@ class TestIsCompleteMethods:
     def test_baichuan_incomplete_without_api_key(self):
         assert cfg.BaichuanConfig(api_key="", model="m").is_complete() is False
 
-    def test_weather_complete_with_only_api_key(self):
-        assert cfg.WeatherConfig(api_key="k").is_complete() is True
+    def test_weather_complete_requires_key_city_host(self):
+        assert cfg.WeatherConfig(api_key="k", city="北京", api_host="abc.qweatherapi.com").is_complete() is True
 
     def test_weather_incomplete_without_api_key(self):
         assert cfg.WeatherConfig(api_key="", city="北京").is_complete() is False
+
+    def test_weather_incomplete_without_host(self):
+        assert cfg.WeatherConfig(api_key="k", city="北京", api_host="").is_complete() is False
 
     def test_outlook_complete(self):
         assert (

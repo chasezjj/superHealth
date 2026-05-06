@@ -1,7 +1,11 @@
 """测试 daily_report.py 的纯逻辑函数。"""
+import json
 from unittest.mock import MagicMock, patch
 
-from superhealth.reports.advanced_daily_report import build_recommendation_feedback_content
+from superhealth.reports.advanced_daily_report import (
+    AdvancedDailyReportGenerator,
+    build_recommendation_feedback_content,
+)
 from superhealth.reports.daily_report import (
     DailyReportGenerator,
     RecoveryAssessment,
@@ -25,6 +29,87 @@ def test_build_recommendation_feedback_content_uses_consistent_section_labels():
         "【恢复建议】训练前吃一根香蕉；训练后补充蛋白质\n\n"
         "【生活建议】上午完成训练；睡前呼吸放松"
     )
+
+
+def test_normalize_schedule_wording_rewrites_unsupported_future_meeting_reference():
+    advice = {
+        "summary": "恢复尚可",
+        "exercise": {},
+        "recovery": {"needed": False, "actions": []},
+        "lifestyle": ["明晚有会议至20:00，建议21:30前结束屏幕使用"],
+        "risk_alerts": [],
+    }
+
+    fixed = AdvancedDailyReportGenerator._normalize_schedule_wording(
+        advice,
+        calendar_summary={"last_event_end": "20:00"},
+    )
+
+    assert fixed["lifestyle"] == ["今晚有会议至20:00，建议21:30前结束屏幕使用"]
+
+
+def test_normalize_schedule_wording_preserves_user_future_context():
+    advice = {
+        "summary": "恢复尚可",
+        "exercise": {},
+        "recovery": {"needed": False, "actions": []},
+        "lifestyle": ["明晚有会议至20:00，建议21:30前结束屏幕使用"],
+        "risk_alerts": [],
+    }
+
+    fixed = AdvancedDailyReportGenerator._normalize_schedule_wording(
+        advice,
+        calendar_summary={"last_event_end": "20:00"},
+        user_context="明天晚上有活动，需要提前结束工作",
+    )
+
+    assert fixed["lifestyle"] == advice["lifestyle"]
+
+
+def test_advanced_daily_report_writes_debug_sidecar(tmp_path):
+    output_dir = tmp_path / "daily-reports"
+    with patch("superhealth.reports.advanced_daily_report.DATA_DIR", output_dir):
+        gen = AdvancedDailyReportGenerator(db_path=tmp_path / "health.db")
+        with patch.object(gen.base_generator, "load_garmin_data", return_value={"sleep_total_min": 480}):
+            with patch.object(gen.base_generator, "load_vitals_stats", return_value=VitalStats()):
+                with patch.object(gen, "_load_vitals_today", return_value={}):
+                    with patch.object(gen, "_load_recent_exercises", return_value=[]):
+                        with patch.object(gen, "_load_recent_feedback", return_value=[]):
+                            with patch.object(gen.profile_builder, "build", return_value=MagicMock(active_goals=[])):
+                                with patch.object(gen.model_selector, "select", return_value=[]):
+                                    with patch.object(gen.model_selector, "get_model_names", return_value=[]):
+                                        with patch.object(gen.model_selector, "get_guide_keys", return_value=[]):
+                                            with patch(
+                                                "superhealth.reports.advanced_daily_report.run_assessments",
+                                                return_value=[],
+                                            ):
+                                                with patch(
+                                                    "superhealth.reports.advanced_daily_report.fetch_weather",
+                                                    return_value=None,
+                                                ):
+                                                    with patch(
+                                                        "superhealth.reports.advanced_daily_report.fetch_calendar",
+                                                        return_value=None,
+                                                    ):
+                                                        with patch.object(
+                                                            gen.claude_advisor,
+                                                            "advise",
+                                                            return_value={
+                                                                "summary": "测试摘要",
+                                                                "exercise": {},
+                                                                "recovery": {"needed": False, "actions": []},
+                                                                "lifestyle": [],
+                                                                "risk_alerts": [],
+                                                            },
+                                                        ):
+                                                            gen.advisor_mode = "claude_only"
+                                                            gen.generate_report("2026-05-06", save=True, test_mode=True)
+
+    debug_path = output_dir / "2026-05-06-advanced-daily-report-test.debug.json"
+    payload = json.loads(debug_path.read_text(encoding="utf-8"))
+    assert payload["advisor_mode"] == "claude_only"
+    assert payload["llm"]["claude"]["summary"] == "测试摘要"
+    assert payload["llm"]["merged"]["summary"] == "测试摘要"
 
 
 class TestAssessRecovery:

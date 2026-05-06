@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -215,6 +216,52 @@ class AdvancedDailyReportGenerator:
             "risk_alerts": combined_risk,
         }
 
+    @staticmethod
+    def _normalize_schedule_wording(
+        llm_advice: dict, calendar_summary: dict | None, user_context: str = ""
+    ) -> dict:
+        """校正基于今日日程生成的错误未来时态，避免“明晚有会”类表述。"""
+        if not calendar_summary:
+            return llm_advice
+
+        last_event_end = calendar_summary.get("last_event_end")
+        if not last_event_end:
+            return llm_advice
+
+        user_context = user_context or ""
+        future_markers = ("明天", "明晚", "明日", "后天", "后晚")
+        if any(marker in user_context for marker in future_markers):
+            return llm_advice
+
+        def _fix_text(text: Any) -> Any:
+            if not isinstance(text, str) or last_event_end not in text:
+                return text
+            if "会议" not in text and "日程" not in text:
+                return text
+            return (
+                text.replace("明天晚上", "今天晚上")
+                .replace("明日晚上", "今天晚上")
+                .replace("明晚", "今晚")
+                .replace("明天", "今天")
+                .replace("明日", "今天")
+            )
+
+        fixed = dict(llm_advice)
+        fixed["summary"] = _fix_text(fixed.get("summary"))
+
+        exercise = dict(fixed.get("exercise", {}) or {})
+        exercise["specific"] = _fix_text(exercise.get("specific"))
+        exercise["reasoning"] = _fix_text(exercise.get("reasoning"))
+        fixed["exercise"] = exercise
+
+        recovery = dict(fixed.get("recovery", {}) or {})
+        recovery["actions"] = [_fix_text(item) for item in recovery.get("actions", [])]
+        fixed["recovery"] = recovery
+
+        fixed["lifestyle"] = [_fix_text(item) for item in fixed.get("lifestyle", [])]
+        fixed["risk_alerts"] = [_fix_text(item) for item in fixed.get("risk_alerts", [])]
+        return fixed
+
     def generate_report(
         self,
         day_str: str,
@@ -275,9 +322,12 @@ class AdvancedDailyReportGenerator:
             calendar_summary=calendar_summary,
             user_context=user_context,
         )
+        llm_debug: dict[str, Any] = {"advisor_mode": self.advisor_mode}
 
         if self.advisor_mode == "baichuan_only":
-            llm_advice = self.baichuan_advisor.advise(**advise_kwargs)
+            baichuan_result = self.baichuan_advisor.advise(**advise_kwargs)
+            llm_debug["baichuan"] = baichuan_result
+            llm_advice = baichuan_result
         elif self.advisor_mode == "both":
             # 并行调用两个 LLM，避免串行等待（节省 50% 耗时）
             import concurrent.futures
@@ -287,9 +337,20 @@ class AdvancedDailyReportGenerator:
                 f_baichuan = pool.submit(self.baichuan_advisor.advise, **advise_kwargs)
                 claude_result = f_claude.result()
                 baichuan_result = f_baichuan.result()
+            llm_debug["claude"] = claude_result
+            llm_debug["baichuan"] = baichuan_result
             llm_advice = self._merge_advice(claude_result, baichuan_result)
         else:  # claude_only（默认）
-            llm_advice = self.claude_advisor.advise(**advise_kwargs)
+            claude_result = self.claude_advisor.advise(**advise_kwargs)
+            llm_debug["claude"] = claude_result
+            llm_advice = claude_result
+
+        llm_advice = self._normalize_schedule_wording(
+            llm_advice,
+            calendar_summary=calendar_summary,
+            user_context=user_context,
+        )
+        llm_debug["merged"] = llm_advice
 
         # ── 预写 recommendation_feedback（Phase 1：存储 LLM 推荐内容）──
         if not test_mode:
@@ -516,6 +577,18 @@ class AdvancedDailyReportGenerator:
             output_path = DATA_DIR / f"{day_str}-advanced-daily-report{suffix}.md"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(report_text, encoding="utf-8")
+            debug_path = DATA_DIR / f"{day_str}-advanced-daily-report{suffix}.debug.json"
+            debug_payload = {
+                "date": day_str,
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "advisor_mode": self.advisor_mode,
+                "calendar_summary": calendar_summary,
+                "llm": llm_debug,
+            }
+            debug_path.write_text(
+                json.dumps(debug_payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             log.info("已生成高级日报: %s", output_path)
 
         return report_text

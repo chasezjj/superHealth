@@ -13,7 +13,6 @@ config.toml 配置示例：
     [weather]
     api_key = "your_qweather_key"
     city = "YourCity"
-    location_id = "YOUR_LOCATION_ID"   # QWeather 城市ID
     api_host = "xxxx.re.qweatherapi.com"  # 私有 API host（付费账号专属域名）
 
 命令行：
@@ -32,11 +31,9 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Optional
-from urllib.error import URLError
-from urllib.request import urlopen
-
-_SSL_CTX = ssl.create_default_context()
-# 保留系统默认 SSL 验证，不全局禁用证书检查
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from superhealth import database as db
 from superhealth.config import get_db_path
@@ -130,6 +127,14 @@ class WeatherData:
         }
 
 
+@dataclass
+class WeatherLocation:
+    location_id: str
+    city_name: str
+    latitude: float
+    longitude: float
+
+
 def _parse_wind_scale(value: Optional[str]) -> Optional[int]:
     """解析风力字符串，支持范围值如 '1-3'、'3-4'，取最大值（保守判定）。"""
     if value is None:
@@ -190,15 +195,99 @@ def _is_outdoor_ok(
     return True
 
 
-def _fetch_json(url: str, timeout: int = 10) -> Optional[dict]:
+def _build_ssl_context() -> ssl.SSLContext:
+    """天气接口默认跳过 SSL 校验，兼容公司代理/自签证书环境。"""
+    ctx = ssl._create_unverified_context()
+    ctx.check_hostname = False
+    return ctx
+
+
+def _weather_headers(api_key: str) -> dict[str, str]:
+    return {
+        "X-QW-Api-Key": api_key,
+        "Accept-Encoding": "gzip",
+        "User-Agent": "superhealth/1.0",
+    }
+
+
+def _weather_host(host: str) -> str:
+    return host.strip()
+
+
+def _decode_response_body(raw: bytes) -> bytes:
+    if raw[:2] == b"\x1f\x8b":
+        return gzip.decompress(raw)
+    return raw
+
+
+def _error_message_from_resp(resp: Optional[dict]) -> Optional[str]:
+    if not resp:
+        return None
+    if "error" in resp and isinstance(resp["error"], dict):
+        error = resp["error"]
+        title = error.get("title") or "请求失败"
+        detail = error.get("detail") or ""
+        status = error.get("status")
+        invalid_params = error.get("invalidParams")
+        parts = [f"HTTP {status}" if status else None, title, detail]
+        if invalid_params:
+            parts.append(f"invalidParams={invalid_params}")
+        return " - ".join(p for p in parts if p)
+    if resp.get("code") and resp.get("code") != "200":
+        return f"code={resp.get('code')}, {resp.get('message', '未知错误')}"
+    return None
+
+
+def _resolve_weather_location(city: str, api_host: str, api_key: str, ssl_context: ssl.SSLContext) -> WeatherLocation:
+    params = urlencode({"location": city, "number": 1})
+    url = f"https://{api_host}/geo/v2/city/lookup?{params}"
+    resp = _fetch_json(url, timeout=10, ssl_context=ssl_context, headers=_weather_headers(api_key))
+    if not resp or resp.get("code") != "200":
+        raise RuntimeError(f"GeoAPI 返回异常: {_error_message_from_resp(resp) or resp}")
+
+    locations = resp.get("location", [])
+    if not locations:
+        raise RuntimeError(f"GeoAPI 未找到城市: {city}")
+
+    first = locations[0]
+    try:
+        return WeatherLocation(
+            location_id=first["id"],
+            city_name=first.get("name", city),
+            latitude=float(first["lat"]),
+            longitude=float(first["lon"]),
+        )
+    except (KeyError, TypeError, ValueError) as e:
+        raise RuntimeError(f"GeoAPI 响应缺少必要字段: {first}") from e
+
+
+def _fetch_json(
+    url: str,
+    timeout: int = 10,
+    ssl_context: Optional[ssl.SSLContext] = None,
+    headers: Optional[dict[str, str]] = None,
+) -> Optional[dict]:
     """发送 GET 请求，返回解析的 JSON dict，自动解压 gzip，失败返回 None。"""
     try:
-        with urlopen(url, timeout=timeout, context=_SSL_CTX) as resp:
-            raw = resp.read()
-            # 自动解压 gzip（响应头 Content-Encoding: gzip 或魔数 1f 8b）
-            if raw[:2] == b"\x1f\x8b":
-                raw = gzip.decompress(raw)
+        req = Request(url, headers=headers or {})
+        with urlopen(req, timeout=timeout, context=ssl_context or ssl.create_default_context()) as resp:
+            raw = _decode_response_body(resp.read())
             return _json.loads(raw.decode("utf-8"))  # type: ignore[no-any-return]
+    except HTTPError as e:
+        reason = str(e.reason) if hasattr(e, "reason") else str(e)
+        if "CERTIFICATE_VERIFY_FAILED" in reason or "SSL" in reason:
+            log.warning("天气 API SSL 证书验证失败，跳过请求: %s", url.split("?")[0])
+            raise SSLVerificationError(f"SSL 证书验证失败: {reason}") from e
+        try:
+            raw = _decode_response_body(e.read())
+            data = _json.loads(raw.decode("utf-8"))  # type: ignore[no-any-return]
+            if isinstance(data, dict):
+                data.setdefault("http_status", e.code)
+                return data
+        except Exception:
+            pass
+        log.warning("天气 API HTTP 请求失败: %s — %s", url.split("?")[0], e)
+        return {"http_status": e.code, "message": reason}
     except URLError as e:
         reason = str(e.reason) if hasattr(e, "reason") else str(e)
         if "CERTIFICATE_VERIFY_FAILED" in reason or "SSL" in reason:
@@ -223,6 +312,7 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
 
     cfg = load_config()
     weather_cfg = cfg.weather
+    ssl_context = _build_ssl_context()
 
     # 非今天日期：只从 DB 读，不请求 API
     if day_str != today:
@@ -260,13 +350,22 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
 
     # DB 无数据，尝试 API 采集
     if not weather_cfg.is_complete():
-        log.warning("天气 API key 未配置（~/.superhealth/config.toml [weather] api_key），跳过天气采集")
+        log.warning("天气配置不完整（需要 API Key、城市、API Host），跳过天气采集")
         return None
 
-    location_id = weather_cfg.location_id
     api_key = weather_cfg.api_key
-    host = weather_cfg.api_host.strip() if weather_cfg.api_host else "devapi.qweather.com"
+    host = _weather_host(weather_cfg.api_host)
+    if not host:
+        log.warning("天气 API Host 未配置，跳过天气采集")
+        return None
     base = f"https://{host}/v7"
+    headers = _weather_headers(api_key)
+    try:
+        weather_loc = _resolve_weather_location(weather_cfg.city, host, api_key, ssl_context)
+    except Exception as e:
+        log.error("天气城市解析失败: %s", e)
+        return None
+    location_id = weather_loc.location_id
 
     MAX_RETRIES = 3
     weather_data: Optional[WeatherData] = None
@@ -274,10 +373,10 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             # 1. 实时天气（用于 fallback condition/temperature/outdoor_ok 判定）
-            weather_url = f"{base}/weather/now?location={location_id}&key={api_key}"
-            weather_resp = _fetch_json(weather_url)
+            weather_url = f"{base}/weather/now?location={location_id}"
+            weather_resp = _fetch_json(weather_url, ssl_context=ssl_context, headers=headers)
             if not weather_resp or weather_resp.get("code") != "200":
-                raise RuntimeError(f"天气 API 返回异常: {weather_resp}")
+                raise RuntimeError(f"天气 API 返回异常: {_error_message_from_resp(weather_resp) or weather_resp}")
 
             now = weather_resp.get("now", {})
             condition = now.get("text", "未知")
@@ -297,8 +396,8 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
             temp_min: Optional[float] = None
             wind_scale: Optional[int] = wind_scale_now  # fallback 到实时
             wind_speed: Optional[float] = wind_speed_now
-            forecast_url = f"{base}/weather/3d?location={location_id}&key={api_key}"
-            forecast_resp = _fetch_json(forecast_url)
+            forecast_url = f"{base}/weather/3d?location={location_id}"
+            forecast_resp = _fetch_json(forecast_url, ssl_context=ssl_context, headers=headers)
             if forecast_resp and forecast_resp.get("code") == "200":
                 daily_list = forecast_resp.get("daily", [])
                 # daily[0] 为今日预报（fxDate == today）
@@ -335,10 +434,10 @@ def fetch_weather(target_date: str | None = None, db_path: Path = DB_PATH) -> Op
             # 注意：该接口不提供 PM2.5 原始值，使用中国标准 AQI（cn-mee）作为替代
             # AQI < 100 = 优/良（适合户外），≥ 100 = 轻度污染及以上（不适合户外）
             aqi: Optional[float] = None  # 实际存储 AQI 值
-            lat = f"{weather_cfg.latitude:.2f}"
-            lon = f"{weather_cfg.longitude:.2f}"
-            air_url = f"https://{host}/airquality/v1/daily/{lat}/{lon}?key={api_key}"
-            air_resp = _fetch_json(air_url)
+            lat = f"{weather_loc.latitude:.2f}"
+            lon = f"{weather_loc.longitude:.2f}"
+            air_url = f"https://{host}/airquality/v1/daily/{lat}/{lon}"
+            air_resp = _fetch_json(air_url, ssl_context=ssl_context, headers=headers)
             if air_resp:
                 # 响应结构：{"days": [{"indexes": [{"code": "cn-mee", "aqi": 88, ...}], ...}]}
                 # days[0] 对应今日（UTC 时间段，北京时间当天）
@@ -422,22 +521,35 @@ def test_connection() -> tuple[bool, str]:
     """测试和风天气 API 连通性。返回 (ok, message)。"""
     cfg = load_config().weather
     if not cfg.is_complete():
-        return False, "天气配置不完整，请填写 API Key 和 Location ID"
+        return False, "天气配置不完整，请填写 API Key、城市和 API Host"
 
     api_key = cfg.api_key
-    location_id = cfg.location_id
-    host = cfg.api_host.strip() if cfg.api_host else "devapi.qweather.com"
-    url = f"https://{host}/v7/weather/now?location={location_id}&key={api_key}"
+    host = _weather_host(cfg.api_host)
+    if not host:
+        return False, "天气配置不完整，请填写 API Host"
+    ssl_context = _build_ssl_context()
+    try:
+        weather_loc = _resolve_weather_location(cfg.city, host, api_key, ssl_context)
+    except Exception as e:
+        return False, f"城市解析失败: {e}"
+    location_id = weather_loc.location_id
+    url = f"https://{host}/v7/weather/now?location={location_id}"
+    resp = _fetch_json(
+        url,
+        timeout=10,
+        ssl_context=ssl_context,
+        headers=_weather_headers(api_key),
+    )
 
-    resp = _fetch_json(url, timeout=10)
     if not resp:
         return False, "天气 API 请求失败，请检查网络或 API Host 配置"
     if resp.get("code") != "200":
-        return False, f"天气 API 返回异常: code={resp.get('code')}, {resp.get('message', '未知错误')}"
+        detail = _error_message_from_resp(resp) or f"code={resp.get('code')}, {resp.get('message', '未知错误')}"
+        return False, f"天气 API 返回异常: {detail}"
 
     now = resp.get("now", {})
     city = now.get("text", "未知")
-    return True, f"天气 API 连接成功（当前天气: {city}）"
+    return True, f"天气 API 连接成功（城市: {weather_loc.city_name}，Location ID: {weather_loc.location_id}，当前天气: {city}）"
 
 
 def main():

@@ -12,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import time
 import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
@@ -50,6 +51,61 @@ def _derive_dashboard_password(new_pwd: str, stored: str) -> str:
     if verify_password(new_pwd, stored):
         return stored  # 输入的是原密码，保持原 hash
     return hash_password(new_pwd)
+
+
+def _save_current_form_config(base_config: AppConfig) -> AppConfig:
+    """将当前表单值写回配置文件，供测试连接按钮立即使用。"""
+    state = st.session_state
+    new_config = AppConfig(
+        garmin=GarminConfig(
+            email=cast(str, state.get("cfg_garmin_email", base_config.garmin.email)),
+            password=cast(str, state.get("cfg_garmin_pwd", base_config.garmin.password)),
+        ),
+        wechat=WechatConfig(
+            account_id=cast(str, state.get("cfg_wx_acc", base_config.wechat.account_id)),
+            channel=cast(str, state.get("cfg_wx_ch", base_config.wechat.channel)),
+            target=cast(str, state.get("cfg_wx_tgt", base_config.wechat.target)),
+        ),
+        vitals=VitalsConfig(
+            api_token=cast(str, state.get("cfg_vitals_token", base_config.vitals.api_token)),
+            host=cast(str, state.get("cfg_vitals_host", base_config.vitals.host)),
+            port=int(state.get("cfg_vitals_port", base_config.vitals.port)),
+        ),
+        claude=ClaudeConfig(
+            api_key=cast(str, state.get("cfg_claude_key", base_config.claude.api_key)),
+            model=cast(str, state.get("cfg_claude_model", base_config.claude.model)),
+            vision_model=base_config.claude.vision_model,
+            max_tokens=int(state.get("cfg_claude_mt", base_config.claude.max_tokens)),
+            base_url=cast(str, state.get("cfg_claude_url", base_config.claude.base_url)),
+        ),
+        baichuan=BaichuanConfig(
+            api_key=cast(str, state.get("cfg_bc_key", base_config.baichuan.api_key)),
+            model=cast(str, state.get("cfg_bc_model", base_config.baichuan.model)),
+            max_tokens=int(state.get("cfg_bc_mt", base_config.baichuan.max_tokens)),
+            base_url=cast(str, state.get("cfg_bc_url", base_config.baichuan.base_url)),
+        ),
+        advisor=AdvisorConfig(
+            mode=cast(str, state.get("cfg_advisor_mode", base_config.advisor.mode))
+        ),
+        weather=WeatherConfig(
+            api_key=cast(str, state.get("cfg_wx_key", base_config.weather.api_key)),
+            city=cast(str, state.get("cfg_wx_city", base_config.weather.city)),
+            api_host=cast(str, state.get("cfg_wx_host", base_config.weather.api_host)),
+        ),
+        dashboard=DashboardConfig(
+            password=base_config.dashboard.password,
+            session_token=base_config.dashboard.session_token,
+            saved_password=base_config.dashboard.saved_password,
+        ),
+        outlook=OutlookConfig(
+            username=cast(str, state.get("cfg_ol_user", base_config.outlook.username)),
+            email=cast(str, state.get("cfg_ol_email", base_config.outlook.email)),
+            password=cast(str, state.get("cfg_ol_pwd", base_config.outlook.password)),
+            timezone=cast(str, state.get("cfg_ol_tz", base_config.outlook.timezone)),
+        ),
+    )
+    save_config(new_config)
+    return new_config
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +243,8 @@ _VITALS_PID_FILE = Path.home() / ".superhealth" / "vitals_receiver.pid"
 _VITALS_LOG_FILE = (
     Path.home() / ".superhealth" / "logs" / "vitals" / "vitals_receiver.log"
 )
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_VITALS_START_SCRIPT = _REPO_ROOT / "scripts" / "start_vitals_receiver.sh"
 
 
 def _local_ip() -> str:
@@ -223,6 +281,12 @@ def _single_date(value: object, fallback: date) -> date:
 def _vitals_pid() -> int | None:
     """返回正在运行的 vitals_receiver 进程 PID，不存在或已退出则返回 None。"""
     if not _VITALS_PID_FILE.exists():
+        cfg = load()
+        pid = _pid_listening_on_port(cfg.vitals.port)
+        if pid is not None and _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
+            _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _VITALS_PID_FILE.write_text(str(pid))
+            return pid
         return None
     try:
         pid = int(_VITALS_PID_FILE.read_text().strip())
@@ -230,7 +294,47 @@ def _vitals_pid() -> int | None:
         return pid
     except (ValueError, ProcessLookupError, PermissionError):
         _VITALS_PID_FILE.unlink(missing_ok=True)
+        cfg = load()
+        pid = _pid_listening_on_port(cfg.vitals.port)
+        if pid is not None and _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
+            _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _VITALS_PID_FILE.write_text(str(pid))
+            return pid
         return None
+
+
+def _is_vitals_healthy(host: str, port: int, timeout: float = 1.0) -> bool:
+    health_host = "127.0.0.1" if host == "0.0.0.0" else host
+    try:
+        with urllib.request.urlopen(
+            f"http://{health_host}:{port}/health",
+            timeout=timeout,
+        ) as resp:
+            return resp.status == 200
+    except OSError:
+        return False
+
+
+def _pid_listening_on_port(port: int) -> int | None:
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f"TCP:{port}", "-sTCP:LISTEN"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            return int(line)
+        except ValueError:
+            continue
+    return None
 
 
 def _start_vitals_receiver() -> tuple[bool, str]:
@@ -238,20 +342,30 @@ def _start_vitals_receiver() -> tuple[bool, str]:
     if _vitals_pid() is not None:
         return False, "服务已在运行中"
     try:
+        cfg = load()
         _VITALS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        log_fp = _VITALS_LOG_FILE.open("ab")
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, "-m", "superhealth.api.vitals_receiver"],
-                stdout=log_fp,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        finally:
-            log_fp.close()
         _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _VITALS_PID_FILE.write_text(str(proc.pid))
-        return True, f"服务已启动（PID {proc.pid}），日志：{_VITALS_LOG_FILE}"
+        result = subprocess.run(
+            ["bash", str(_VITALS_START_SCRIPT)],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        pid = int(result.stdout.strip().splitlines()[-1])
+        _VITALS_PID_FILE.write_text(str(pid))
+        for _ in range(10):
+            if _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
+                return True, f"服务已启动（PID {pid}），日志：{_VITALS_LOG_FILE}"
+            time.sleep(0.3)
+
+        log_tail = _read_log_tail(_VITALS_LOG_FILE, lines=20)
+        if log_tail:
+            return False, f"启动后健康检查失败，请查看日志：{_VITALS_LOG_FILE}\n\n{log_tail}"
+        return False, f"启动后健康检查失败，请查看日志：{_VITALS_LOG_FILE}"
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or e.stdout or str(e)).strip()
+        return False, f"启动失败: {err}"
     except Exception as e:
         return False, f"启动失败: {e}"
 
@@ -299,6 +413,7 @@ def render() -> None:
         if st.button("测试 Garmin 连接", key="btn_test_garmin"):
             from superhealth.collectors.fetch_garmin import login_with_credentials, test_connection
 
+            _save_current_form_config(config)
             with st.spinner("正在验证 session..."):
                 ok, msg = test_connection()
 
@@ -500,6 +615,7 @@ def render() -> None:
             st.caption("公网 IP 获取失败；如有固定公网 IP 或域名，请按同样格式填写。")
         st.caption("接收服务日志")
         st.code(str(_VITALS_LOG_FILE), language="text")
+        st.caption("修改 API Token / Host / Port 后，请先点击页面底部的“保存配置”，再启动接收服务。")
 
         st.divider()
         pid = _vitals_pid()
@@ -561,6 +677,7 @@ def render() -> None:
             help="使用代理或私有部署时填写，留空连接官方地址",
         )
         if st.button("测试建议引擎连接", key="btn_test_claude"):
+            _save_current_form_config(config)
             if not claude_key or not claude_model:
                 st.error("请先填写 API Key 和 Model")
             else:
@@ -621,6 +738,7 @@ def render() -> None:
             help="默认连接百川官方地址，使用代理时可覆盖",
         )
         if st.button("测试百川连接", key="btn_test_baichuan"):
+            _save_current_form_config(config)
             if not bc_key or not bc_model:
                 st.error("请先填写 API Key 和 Model")
             else:
@@ -661,10 +779,9 @@ def render() -> None:
             "用于在健康日报中附加当日天气信息，数据来自和风天气（qweather.com）。"
             "每天生成的健康日报会根据天气情况决定进行户外和室内运动的推荐。"
             "API Key 填和风天气开放平台的密钥；"
-            "城市填中文城市名（仅用于展示）；"
-            "Location ID 填和风天气的地点 ID（城市搜索页可查，精度更高）；"
-            "纬度/经度用于获取逐小时预报，填所在地坐标；"
-            "API Host 仅在使用镜像或代理时填写，留空连接官方地址。"
+            "城市填中文城市名；"
+            "系统会自动通过 GeoAPI 解析 Location ID 和经纬度；"
+            "API Host 为必填，请填写和风控制台中的专属 Host。"
         )
         c1, c2, c3 = st.columns(3)
         weather_key = c1.text_input(
@@ -678,40 +795,23 @@ def render() -> None:
             "城市",
             value=config.weather.city,
             key="cfg_wx_city",
-            help="中文城市名，仅用于展示",
+            help="中文城市名，系统会自动解析 Location ID 和经纬度",
         )
-        weather_loc = c3.text_input(
-            "Location ID",
-            value=config.weather.location_id,
-            key="cfg_wx_loc",
-            help="和风天气地点 ID，在城市搜索页查询",
-        )
-        c4, c5, c6 = st.columns(3)
-        weather_host = c4.text_input(
-            "API Host（可选）",
+        weather_host = c3.text_input(
+            "API Host",
             value=config.weather.api_host,
             key="cfg_wx_host",
-            help="使用镜像或代理时填写，留空连接官方地址",
-        )
-        weather_lat = c5.number_input(
-            "纬度",
-            value=float(config.weather.latitude),
-            format="%.2f",
-            key="cfg_wx_lat",
-            help="所在地纬度，用于逐小时预报",
-        )
-        weather_lon = c6.number_input(
-            "经度",
-            value=float(config.weather.longitude),
-            format="%.2f",
-            key="cfg_wx_lon",
-            help="所在地经度，用于逐小时预报",
+            help="和风控制台中的专属 API Host，如 abc123.def.qweatherapi.com",
         )
         if st.button("测试天气连接", key="btn_test_weather"):
             from superhealth.collectors.weather_collector import test_connection as test_weather
 
+            _save_current_form_config(config)
             with st.spinner("正在连接..."):
-                ok, msg = test_weather()
+                try:
+                    ok, msg = test_weather()
+                except Exception as e:
+                    ok, msg = False, f"天气连接测试失败: {e}"
             if ok:
                 st.success(msg)
             else:
@@ -773,6 +873,7 @@ def render() -> None:
         if st.button("测试 Exchange 连接", key="btn_test_outlook"):
             from superhealth.collectors.outlook_collector import test_connection as test_outlook
 
+            _save_current_form_config(config)
             with st.spinner("正在连接..."):
                 ok, msg = test_outlook()
             if ok:
@@ -924,10 +1025,7 @@ def render() -> None:
             weather=WeatherConfig(
                 api_key=weather_key,
                 city=weather_city,
-                location_id=weather_loc,
                 api_host=weather_host,
-                latitude=weather_lat,
-                longitude=weather_lon,
             ),
             dashboard=DashboardConfig(
                 password=_derive_dashboard_password(dashboard_pwd, config.dashboard.password),

@@ -73,10 +73,7 @@ class TestSaveConfig:
             weather=cfg.WeatherConfig(
                 api_key="wk",
                 city="北京",
-                location_id="101010100",
                 api_host="myhost.example",
-                latitude=40.0,
-                longitude=116.5,
             ),
             dashboard=cfg.DashboardConfig(password="dp", session_token="st"),
             outlook=cfg.OutlookConfig(
@@ -98,7 +95,6 @@ class TestSaveConfig:
         assert loaded.advisor.mode == "both"
         assert loaded.weather.city == "北京"
         assert loaded.weather.api_host == "myhost.example"
-        assert loaded.weather.latitude == pytest.approx(40.0)
         assert loaded.dashboard.password == "dp"
         assert loaded.outlook.username == "ou"
         assert loaded.outlook.timezone == "Asia/Tokyo"

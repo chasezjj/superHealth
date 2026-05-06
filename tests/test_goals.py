@@ -198,9 +198,33 @@ class TestGoalManagerTrackProgress:
             for i in range(3):
                 db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120)
         gid = mgr.add_goal(name="降压", metric_key="bp_systolic_mean_7d", direction="decrease", baseline_value=130, target=110)
+        with db.get_conn(tmp_db) as conn:
+            conn.execute("UPDATE goals SET start_date = '2025-04-03' WHERE id = ?", (gid,))
         mgr.track_daily_progress("2025-04-03")
         progress = mgr.get_goal_progress(gid)
         assert len(progress) == 1
+
+    def test_track_daily_progress_backfills_recent_goal_snapshots(self, tmp_db):
+        mgr = GoalManager(tmp_db)
+        with db.get_conn(tmp_db) as conn:
+            for i in range(5):
+                db.insert_vital(conn, measured_at=f"2025-04-0{i+1} 08:00:00", systolic=120 - i)
+        gid = mgr.add_goal(
+            name="降压",
+            metric_key="bp_systolic_mean_7d",
+            direction="decrease",
+            baseline_value=130,
+            target=110,
+        )
+        with db.get_conn(tmp_db) as conn:
+            conn.execute("UPDATE goals SET start_date = '2025-04-03' WHERE id = ?", (gid,))
+            conn.execute("DELETE FROM goal_progress WHERE goal_id = ?", (gid,))
+
+        mgr.track_daily_progress("2025-04-05")
+
+        progress = sorted(mgr.get_goal_progress(gid), key=lambda row: row["date"])
+        assert [p["date"] for p in progress] == ["2025-04-03", "2025-04-04", "2025-04-05"]
+        assert all(p["current_value"] is not None for p in progress)
 
 
 class TestGoalManagerChecks:

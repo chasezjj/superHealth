@@ -202,16 +202,22 @@ export SUPERHEALTH_DB=~/.superhealth/health.db
 ### 启动仪表盘
 
 ```bash
-python3 -m superhealth dashboard --server.port=8505
+bash scripts/start_dashboard.sh
 ```
 
-也可以直接运行 Streamlit：
+日志写入：
 
 ```bash
-PYTHONPATH=src streamlit run src/superhealth/dashboard/app.py --server.port=8505
+~/.superhealth/logs/dashboard/dashboard.nohup.log
 ```
 
 访问 `http://localhost:8505`。
+
+也可以直接运行：
+
+```bash
+PYTHONPATH=src python3 -m superhealth dashboard --server.port=8505
+```
 
 ### 导入示例数据
 
@@ -243,7 +249,7 @@ python3 -m superhealth.collectors.fetch_garmin --date 2026-05-05
 python3 -m superhealth.collectors.fetch_garmin --range 2026-05-01 2026-05-05
 
 # Health Auto Export REST 接收端
-python3 -m superhealth.api.vitals_receiver
+bash scripts/start_vitals_receiver.sh
 
 # 天气与日历
 python3 -m superhealth.collectors.weather_collector --date 2026-05-05

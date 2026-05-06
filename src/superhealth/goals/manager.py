@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -289,11 +289,17 @@ class GoalManager:
 
     # ── 每日进度追踪（daily_pipeline 调用）─────────────────────────────
 
-    def track_daily_progress(self, ref_date: str):
-        """对每个 active goal 计算当天 progress 并写入 goal_progress。
+    def track_daily_progress(self, ref_date: str, backfill_days: int = 30):
+        """对每个 active goal 计算 progress 并写入 goal_progress。
 
+        默认补齐截至 ref_date 最近 30 天内缺失/过期的每日快照，避免目标在
+        pipeline 跑完后创建、某天跳过或快照表缺行时 dashboard 无法绘制趋势。
         低频指标跳过每日快照。
         """
+        ref = date.fromisoformat(ref_date)
+        min_start = ref - timedelta(days=max(backfill_days, 1) - 1)
+        written = 0
+        skipped = 0
         with self._get_conn() as conn:
             goals = [
                 dict(r)
@@ -308,7 +314,30 @@ class GoalManager:
                 if spec.frequency == "low_freq":
                     continue
 
-                self._write_goal_progress(conn, goal, ref_date)
+                try:
+                    goal_start = date.fromisoformat(str(goal.get("start_date") or ref_date)[:10])
+                except ValueError:
+                    goal_start = ref
+                start = max(goal_start, min_start)
+                if start > ref:
+                    skipped += 1
+                    continue
+
+                current_day = start
+                while current_day <= ref:
+                    if self._write_goal_progress(conn, goal, current_day.isoformat()):
+                        written += 1
+                    else:
+                        skipped += 1
+                    current_day += timedelta(days=1)
+
+        log.info(
+            "GOAL_PROGRESS_TRACKED date=%s active_goals=%d written=%d skipped=%d",
+            ref_date,
+            len(goals),
+            written,
+            skipped,
+        )
 
     def _write_goal_progress(
         self, conn: sqlite3.Connection, goal: dict, ref_date: str

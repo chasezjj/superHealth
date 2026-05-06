@@ -407,6 +407,11 @@ class BaseHealthAdvisor(ABC):
                 )
             elif busy_level == "medium":
                 lines.append("📌 今日日程较满，建议利用会议间隙进行短时活动，或安排中等强度运动")
+            lines.append(
+                "【时间指代约束】以上只提供今日/今晚的日程信息。"
+                "若建议引用会议或晚间安排，只能基于上述今日日程，必须使用“今天/今晚”表述，"
+                "不要推断或虚构明天、明晚、后天的安排。"
+            )
 
         lines.append(self._json_request_prompt())
 

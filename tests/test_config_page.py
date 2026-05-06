@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import subprocess
 import signal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -656,29 +657,58 @@ class TestStartVitalsReceiver:
         assert "运行" in msg
 
     def test_starts_and_writes_pid(self, isolated_pid_file, isolated_vitals_log_file):
-        fake_proc = MagicMock(pid=7890)
-        with patch.object(page.subprocess, "Popen", return_value=fake_proc) as popen:
+        port_probe = subprocess.CompletedProcess(
+            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        start_script = subprocess.CompletedProcess(
+            args=["bash", str(page._VITALS_START_SCRIPT)],
+            returncode=0,
+            stdout="7890\n",
+            stderr="",
+        )
+        with (
+            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]) as run,
+            patch.object(page, "_is_vitals_healthy", return_value=True),
+            patch.object(page.time, "sleep"),
+        ):
             ok, msg = page._start_vitals_receiver()
         assert ok is True
         assert "7890" in msg
         assert str(isolated_vitals_log_file) in msg
         assert isolated_pid_file.read_text() == "7890"
-        # 验证启动命令使用了正确的模块入口
-        args, kwargs = popen.call_args
-        cmd = args[0]
-        assert cmd[-1] == "superhealth.api.vitals_receiver"
-        assert cmd[-2] == "-m"
-        assert kwargs.get("stdout").name == str(isolated_vitals_log_file)
-        assert kwargs.get("stderr") == page.subprocess.STDOUT
-        # 后台分离 session
-        assert kwargs.get("start_new_session") is True
+        assert run.call_count == 2
+        args, kwargs = run.call_args_list[1]
+        assert args[0] == ["bash", str(page._VITALS_START_SCRIPT)]
+        assert kwargs["cwd"] == str(page._REPO_ROOT)
+        assert kwargs["capture_output"] is True
+        assert kwargs["text"] is True
+        assert kwargs["check"] is True
 
     def test_creates_log_parent_dir(self, isolated_pid_file, isolated_vitals_log_file):
         assert not isolated_vitals_log_file.parent.exists()
-        fake_proc = MagicMock(pid=7890)
-        with patch.object(page.subprocess, "Popen", return_value=fake_proc):
+        port_probe = subprocess.CompletedProcess(
+            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        start_script = subprocess.CompletedProcess(
+            args=["bash", str(page._VITALS_START_SCRIPT)],
+            returncode=0,
+            stdout="7890\n",
+            stderr="",
+        )
+        with (
+            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]),
+            patch.object(page, "_is_vitals_healthy", side_effect=[False] * 10),
+            patch.object(page.time, "sleep"),
+            patch.object(page, "_read_log_tail", return_value=""),
+        ):
             ok, _ = page._start_vitals_receiver()
-        assert ok is True
+        assert ok is False
         assert isolated_vitals_log_file.parent.is_dir()
 
     def test_returns_failure_when_popen_raises(
@@ -696,8 +726,23 @@ class TestStartVitalsReceiver:
     ):
         nested = tmp_path / "deep" / "nested" / "dir" / "vitals.pid"
         monkeypatch.setattr(page, "_VITALS_PID_FILE", nested)
-        fake_proc = MagicMock(pid=123)
-        with patch.object(page.subprocess, "Popen", return_value=fake_proc):
+        port_probe = subprocess.CompletedProcess(
+            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        start_script = subprocess.CompletedProcess(
+            args=["bash", str(page._VITALS_START_SCRIPT)],
+            returncode=0,
+            stdout="123\n",
+            stderr="",
+        )
+        with (
+            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]),
+            patch.object(page, "_is_vitals_healthy", return_value=True),
+            patch.object(page.time, "sleep"),
+        ):
             ok, _ = page._start_vitals_receiver()
         assert ok is True
         assert nested.exists()

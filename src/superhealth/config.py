@@ -155,13 +155,10 @@ class AdvisorConfig:
 class WeatherConfig:
     api_key: str = ""  # 和风天气 API key
     city: str = ""  # 城市名称（如：北京）
-    location_id: str = ""  # 和风天气城市ID（如：101010100）
     api_host: str = ""  # 私有 API host，如 n95rk72uwg.re.qweatherapi.com
-    latitude: float = 39.92  # 纬度（用于空气质量 API）
-    longitude: float = 116.41  # 经度（用于空气质量 API）
 
     def is_complete(self) -> bool:
-        return bool(self.api_key)
+        return bool(self.api_key and self.city and self.api_host)
 
 
 @dataclass
@@ -257,16 +254,8 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
     weather = WeatherConfig(
         api_key=weather_raw.get("api_key", "") or os.environ.get("HEALTHY_WEATHER_API_KEY", ""),
         city=weather_raw.get("city", "") or os.environ.get("HEALTHY_WEATHER_CITY", ""),
-        location_id=weather_raw.get("location_id", "")
-        or os.environ.get("HEALTHY_WEATHER_LOCATION_ID", ""),
         api_host=weather_raw.get("api_host", "")
         or os.environ.get("HEALTHY_WEATHER_API_HOST", ""),
-        latitude=float(
-            weather_raw.get("latitude", 0) or os.environ.get("HEALTHY_WEATHER_LAT", 0) or 39.92
-        ),
-        longitude=float(
-            weather_raw.get("longitude", 0) or os.environ.get("HEALTHY_WEATHER_LON", 0) or 116.41
-        ),
     )
 
     baichuan_raw = raw.get("baichuan", {})
@@ -428,10 +417,7 @@ def save_config(config: AppConfig, config_path: Path = CONFIG_PATH) -> None:
     raw["weather"] = {
         "api_key": config.weather.api_key,
         "city": config.weather.city,
-        "location_id": config.weather.location_id,
         "api_host": config.weather.api_host,
-        "latitude": config.weather.latitude,
-        "longitude": config.weather.longitude,
     }
 
     raw.setdefault("dashboard", {})

@@ -11,6 +11,16 @@ Commands:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+
+def _repo_root() -> Path:
+    """Return the repository root that contains src/ and schema.sql."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _dashboard_app_path() -> Path:
+    return _repo_root() / "src" / "superhealth" / "dashboard" / "app.py"
 
 
 def main():
@@ -44,9 +54,11 @@ def main():
                 "-m",
                 "streamlit",
                 "run",
-                "src/superhealth/dashboard/app.py",
+                str(_dashboard_app_path()),
                 *rest,
-            ]
+            ],
+            cwd=str(_repo_root()),
+            check=True,
         )
     else:
         print(f"Unknown command: {cmd}")
