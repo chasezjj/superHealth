@@ -57,6 +57,20 @@ jobs:
           pip install pip-audit
 
       - name: Audit dependencies
+        # pillow stays at 11.x because streamlit<1.41.0 requires pillow<12; the
+        # ignored pillow CVEs all live in code paths this app never touches
+        # (it has no PIL imports — pillow is only pulled in transitively).
         # CVE-2026-33682: streamlit Windows-only SSRF, not applicable on Linux/Mac
-        # CVE-2026-25990/CVE-2026-40192: pillow PSD/FITS image parsing, not used in this app
-        run: pip-audit --desc --ignore-vuln CVE-2026-33682 --ignore-vuln CVE-2026-25990 --ignore-vuln CVE-2026-40192
+        # CVE-2026-25990/CVE-2026-40192/CVE-2026-42311: pillow PSD/FITS image parsing
+        # CVE-2026-42308: pillow ImageFont glyph-advance integer overflow
+        # CVE-2026-42309: pillow ImageDraw polygon/line nested-list overflow
+        # CVE-2026-42310: pillow PdfParser infinite loop (this app uses pypdf, not PIL)
+        run: >-
+          pip-audit --desc
+          --ignore-vuln CVE-2026-33682
+          --ignore-vuln CVE-2026-25990
+          --ignore-vuln CVE-2026-40192
+          --ignore-vuln CVE-2026-42308
+          --ignore-vuln CVE-2026-42309
+          --ignore-vuln CVE-2026-42310
+          --ignore-vuln CVE-2026-42311
