@@ -7,7 +7,6 @@
 import argparse
 import logging
 import re
-import sys
 from pathlib import Path
 
 from superhealth import config as cfg
