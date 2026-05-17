@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import subprocess
-import signal
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -594,10 +593,12 @@ def isolated_pid_file(tmp_path, monkeypatch):
 
 @pytest.fixture
 def isolated_vitals_log_file(tmp_path, monkeypatch):
-    """将 vitals_receiver 日志指向 tmp 目录，避免测试影响真实环境。"""
-    fake = tmp_path / "logs" / "vitals" / "vitals_receiver.log"
-    monkeypatch.setattr(page, "_VITALS_LOG_FILE", fake)
-    return fake
+    """将 vitals_receiver 托管日志指向 tmp 目录，避免测试影响真实环境。"""
+    fake_err = tmp_path / "logs" / "vitals" / "vitals_receiver.err.log"
+    fake_out = tmp_path / "logs" / "vitals" / "vitals_receiver.out.log"
+    monkeypatch.setattr(page, "_VITALS_MANAGED_ERR_LOG_FILE", fake_err)
+    monkeypatch.setattr(page, "_VITALS_MANAGED_OUT_LOG_FILE", fake_out)
+    return fake_err
 
 
 class TestVitalsPid:
@@ -644,75 +645,49 @@ class TestStartVitalsReceiver:
     def test_refuses_to_start_when_already_running(
         self, isolated_pid_file, isolated_vitals_log_file
     ):
-        isolated_pid_file.write_text("12345")
-        with patch.object(page.os, "kill", return_value=None):
+        with patch.object(page, "_vitals_pid", return_value=12345):
             ok, msg = page._start_vitals_receiver()
         assert ok is False
         assert "运行" in msg
 
     def test_starts_and_writes_pid(self, isolated_pid_file, isolated_vitals_log_file):
-        port_probe = subprocess.CompletedProcess(
-            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
-        start_script = subprocess.CompletedProcess(
-            args=["bash", str(page._VITALS_START_SCRIPT)],
-            returncode=0,
-            stdout="7890\n",
-            stderr="",
-        )
         with (
-            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]) as run,
+            patch.object(page, "_vitals_pid", return_value=None),
+            patch.object(page, "_start_managed_service", return_value=(True, "started")) as mock_svc,
             patch.object(page, "_is_vitals_healthy", return_value=True),
+            patch.object(page, "_pid_listening_on_port", return_value=7890),
             patch.object(page.time, "sleep"),
         ):
             ok, msg = page._start_vitals_receiver()
         assert ok is True
         assert "7890" in msg
-        assert str(isolated_vitals_log_file) in msg
         assert isolated_pid_file.read_text() == "7890"
-        assert run.call_count == 2
-        args, kwargs = run.call_args_list[1]
-        assert args[0] == ["bash", str(page._VITALS_START_SCRIPT)]
-        assert kwargs["cwd"] == str(page._REPO_ROOT)
-        assert kwargs["capture_output"] is True
-        assert kwargs["text"] is True
-        assert kwargs["check"] is True
+        mock_svc.assert_called_once_with("vitals_receiver")
 
-    def test_creates_log_parent_dir(self, isolated_pid_file, isolated_vitals_log_file):
-        assert not isolated_vitals_log_file.parent.exists()
-        port_probe = subprocess.CompletedProcess(
-            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
-        start_script = subprocess.CompletedProcess(
-            args=["bash", str(page._VITALS_START_SCRIPT)],
-            returncode=0,
-            stdout="7890\n",
-            stderr="",
-        )
-        with (
-            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]),
-            patch.object(page, "_is_vitals_healthy", side_effect=[False] * 10),
-            patch.object(page.time, "sleep"),
-            patch.object(page, "_read_log_tail", return_value=""),
-        ):
-            ok, _ = page._start_vitals_receiver()
-        assert ok is False
-        assert isolated_vitals_log_file.parent.is_dir()
-
-    def test_returns_failure_when_popen_raises(
+    def test_returns_failure_with_log_tail_when_health_check_fails(
         self, isolated_pid_file, isolated_vitals_log_file
     ):
-        with patch.object(page.subprocess, "Popen", side_effect=OSError("boom")):
+        with (
+            patch.object(page, "_vitals_pid", return_value=None),
+            patch.object(page, "_start_managed_service", return_value=(True, "started")),
+            patch.object(page, "_is_vitals_healthy", return_value=False),
+            patch.object(page, "_read_log_tail", return_value="some error output"),
+            patch.object(page.time, "sleep"),
+        ):
+            ok, msg = page._start_vitals_receiver()
+        assert ok is False
+        assert "some error output" in msg
+
+    def test_returns_failure_when_managed_service_fails(
+        self, isolated_pid_file, isolated_vitals_log_file
+    ):
+        with (
+            patch.object(page, "_vitals_pid", return_value=None),
+            patch.object(page, "_start_managed_service", return_value=(False, "boom")),
+        ):
             ok, msg = page._start_vitals_receiver()
         assert ok is False
         assert "boom" in msg
-        # 失败时不应留下 PID 文件
         assert not isolated_pid_file.exists()
 
     def test_creates_parent_dir_for_pid_file(
@@ -720,21 +695,11 @@ class TestStartVitalsReceiver:
     ):
         nested = tmp_path / "deep" / "nested" / "dir" / "vitals.pid"
         monkeypatch.setattr(page, "_VITALS_PID_FILE", nested)
-        port_probe = subprocess.CompletedProcess(
-            args=["lsof", "-ti", "TCP:8506", "-sTCP:LISTEN"],
-            returncode=0,
-            stdout="",
-            stderr="",
-        )
-        start_script = subprocess.CompletedProcess(
-            args=["bash", str(page._VITALS_START_SCRIPT)],
-            returncode=0,
-            stdout="123\n",
-            stderr="",
-        )
         with (
-            patch.object(page.subprocess, "run", side_effect=[port_probe, start_script]),
+            patch.object(page, "_vitals_pid", return_value=None),
+            patch.object(page, "_start_managed_service", return_value=(True, "started")),
             patch.object(page, "_is_vitals_healthy", return_value=True),
+            patch.object(page, "_pid_listening_on_port", return_value=123),
             patch.object(page.time, "sleep"),
         ):
             ok, _ = page._start_vitals_receiver()
@@ -745,41 +710,28 @@ class TestStartVitalsReceiver:
 
 class TestStopVitalsReceiver:
     def test_returns_failure_when_not_running(self, isolated_pid_file):
-        ok, msg = page._stop_vitals_receiver()
+        with patch.object(page, "_vitals_pid", return_value=None):
+            ok, msg = page._stop_vitals_receiver()
         assert ok is False
         assert "未运行" in msg
 
-    def test_sends_sigterm_and_clears_pid_file(self, isolated_pid_file):
+    def test_stops_via_managed_service_and_clears_pid_file(self, isolated_pid_file):
         isolated_pid_file.write_text("4321")
-        kill_calls: list[tuple[int, int]] = []
-
-        def fake_kill(pid, sig):
-            kill_calls.append((pid, sig))
-            # 第一次（signal 0）用于探测，第二次为 SIGTERM
-            return None
-
-        with patch.object(page.os, "kill", side_effect=fake_kill):
+        with (
+            patch.object(page, "_vitals_pid", return_value=4321),
+            patch.object(page, "_stop_managed_service", return_value=(True, "已停止")) as mock_svc,
+        ):
             ok, msg = page._stop_vitals_receiver()
-
         assert ok is True
-        assert "4321" in msg
-        # 至少应触发一次 SIGTERM
-        assert (4321, signal.SIGTERM) in kill_calls
-        # PID 文件清理
+        mock_svc.assert_called_once_with("vitals_receiver")
         assert not isolated_pid_file.exists()
 
-    def test_returns_failure_when_kill_raises(self, isolated_pid_file):
+    def test_returns_failure_when_managed_service_fails(self, isolated_pid_file):
         isolated_pid_file.write_text("4321")
-
-        call_count = {"n": 0}
-
-        def fake_kill(pid, sig):
-            call_count["n"] += 1
-            if sig == 0:
-                return None  # 探测调用通过
-            raise PermissionError("denied")
-
-        with patch.object(page.os, "kill", side_effect=fake_kill):
+        with (
+            patch.object(page, "_vitals_pid", return_value=4321),
+            patch.object(page, "_stop_managed_service", return_value=(False, "denied")),
+        ):
             ok, msg = page._stop_vitals_receiver()
         assert ok is False
         assert "denied" in msg
