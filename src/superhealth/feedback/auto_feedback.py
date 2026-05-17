@@ -218,8 +218,6 @@ def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
     """
     today = date.today().isoformat()
     yesterday = target_date or (datetime.fromisoformat(today) - timedelta(days=1)).isoformat()[:10]
-    report_id = f"{yesterday}-advanced-daily-report"
-
     with db.get_conn(db_path) as conn:
         # ── 幂等检查：compliance 已填写则跳过 ──
         existing = conn.execute(
@@ -297,7 +295,7 @@ def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
         # ── 5. 写入：优先 UPDATE 已有记录，无记录则 INSERT ──
         # 从 existing 记录获取实际的 recommendation_type
         rec_type = existing["recommendation_type"] if existing else "exercise"
-        updated = db.update_recommendation_feedback(
+        db.update_recommendation_feedback(
             conn,
             date=yesterday,
             recommendation_type=rec_type,

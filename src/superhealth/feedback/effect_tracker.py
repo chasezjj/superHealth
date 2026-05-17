@@ -31,8 +31,8 @@ from statistics import mean, stdev
 from typing import Optional
 
 from superhealth import database as db
-from superhealth.config import get_db_path
 from superhealth.collectors.outlook_collector import _build_summary
+from superhealth.config import get_db_path
 
 log = logging.getLogger(__name__)
 
