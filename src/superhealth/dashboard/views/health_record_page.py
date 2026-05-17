@@ -11,10 +11,10 @@ import pandas as pd
 import streamlit as st
 
 from superhealth import database as db
-from superhealth.collectors.fetch_garmin import BASE_DIR
+from superhealth.config import get_db_path
 from superhealth.dashboard.data_loader import get_available_lab_metrics
 
-DB_PATH = BASE_DIR / "health.db"
+DB_PATH = get_db_path()
 
 _STATUS_LABELS = {"active": "在治/随访", "resolved": "已缓解", "suspected": "疑似"}
 _STATUS_VALUES = {v: k for k, v in _STATUS_LABELS.items()}

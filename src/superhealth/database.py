@@ -15,11 +15,12 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from superhealth.config import get_db_path
 from superhealth.models import DailyHealth
 
 log = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "health.db"
+DEFAULT_DB_PATH = get_db_path()
 
 _MEDICATION_COLS = {
     "name", "condition", "start_date", "end_date", "dosage", "frequency", "note",
@@ -38,8 +39,9 @@ def _validate_kwargs(kwargs: dict, allowed: set[str], func_name: str) -> dict:
 
 
 @contextmanager
-def get_conn(db_path: Path = DEFAULT_DB_PATH):
+def get_conn(db_path: Path | None = None):
     """获取数据库连接，自动提交/回滚。"""
+    db_path = db_path or get_db_path()
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -57,7 +59,7 @@ def get_conn(db_path: Path = DEFAULT_DB_PATH):
 _SCHEMA_FILE = Path(__file__).parent.parent.parent / "schema.sql"
 
 
-def init_db(db_path: Path = DEFAULT_DB_PATH):
+def init_db(db_path: Path | None = None):
     """执行 schema.sql，幂等创建/更新所有表结构。
 
     云端部署后运行一次即可同步最新 schema：
@@ -67,6 +69,7 @@ def init_db(db_path: Path = DEFAULT_DB_PATH):
     - CREATE TABLE IF NOT EXISTS → 直接执行，天然幂等
     - ALTER TABLE ... ADD COLUMN → 忽略"列已存在"错误，幂等
     """
+    db_path = db_path or get_db_path()
     raw = _SCHEMA_FILE.read_text(encoding="utf-8")
     # 去掉注释行，避免注释内的分号干扰语句分割
     lines = [ln for ln in raw.splitlines() if not ln.strip().startswith("--")]

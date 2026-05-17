@@ -18,11 +18,12 @@ from pathlib import Path
 from superhealth.analysis.causal import CausalInferenceAnalyzer
 from superhealth.analysis.correlation import CorrelationAnalyzer
 from superhealth.analysis.trends import TrendAnalyzer
+from superhealth.config import get_db_path
 from superhealth.config import load as load_config
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 

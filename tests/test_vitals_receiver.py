@@ -72,19 +72,6 @@ class TestParsePayload:
         assert records[0]["weight_kg"] == 68.5
         assert records[0]["body_fat_pct"] == 22.3
 
-    def test_v1_format_compat(self):
-        payload = {
-            "metrics": [
-                {
-                    "name": "weight_body_mass",
-                    "data": [{"date": "2025-04-01 07:00:00", "qty": 70.0}],
-                }
-            ]
-        }
-        records = _parse_payload(payload)
-        assert len(records) == 1
-        assert records[0]["weight_kg"] == 70.0
-
     def test_blood_pressure_combined_format(self):
         payload = {
             "data": {

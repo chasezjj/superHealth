@@ -132,6 +132,109 @@ def test_custom_endpoint_pdf_is_sent_as_extracted_text(monkeypatch):
     assert result.observations[0]["item_name"] == "尿酸"
 
 
+def test_extract_uses_configured_document_timeout():
+    captured = {}
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+
+            class TextBlock:
+                type = "text"
+                text = (
+                    '{"doc_type":"lab","doc_date":"","institution":"","department":"",'
+                    '"doctor":"","title":"PDF","observations":[],'
+                    '"conditions_inferred":[],"markdown_summary":"ok"}'
+                )
+
+            class Message:
+                content = [TextBlock()]
+
+            return Message()
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    class FakeExtractor(DocumentExtractor):
+        def _get_client(self):
+            return FakeClient()
+
+    extractor = FakeExtractor(ClaudeConfig(api_key="key", document_timeout_seconds=600))
+
+    extractor.extract([("report.png", b"image")])
+
+    assert captured["timeout"] == 600
+
+
+def test_extract_retries_transient_connection_errors(monkeypatch):
+    import superhealth.core.document_extractor as module
+
+    attempts = {"count": 0}
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise RuntimeError("Connection error.")
+
+            class TextBlock:
+                type = "text"
+                text = (
+                    '{"doc_type":"lab","doc_date":"","institution":"","department":"",'
+                    '"doctor":"","title":"PDF","observations":[],'
+                    '"conditions_inferred":[],"markdown_summary":"ok"}'
+                )
+
+            class Message:
+                content = [TextBlock()]
+
+            return Message()
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    class FakeExtractor(DocumentExtractor):
+        def _get_client(self):
+            return FakeClient()
+
+    extractor = FakeExtractor(ClaudeConfig(api_key="key"))
+
+    extractor.extract([("report.png", b"image")])
+
+    assert attempts["count"] == 3
+
+
+def test_extract_wraps_connection_error_after_retries(monkeypatch):
+    import superhealth.core.document_extractor as module
+
+    attempts = {"count": 0}
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            attempts["count"] += 1
+            raise RuntimeError("Connection error.")
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    class FakeExtractor(DocumentExtractor):
+        def _get_client(self):
+            return FakeClient()
+
+    extractor = FakeExtractor(ClaudeConfig(api_key="key"))
+
+    try:
+        extractor.extract([("report.png", b"image")])
+    except RuntimeError as e:
+        assert "已自动重试 3 次" in str(e)
+        assert "Connection error" in str(e)
+    else:
+        raise AssertionError("expected connection error")
+    assert attempts["count"] == 3
+
+
 def test_pdf_text_block_rejects_scanned_pdf(monkeypatch):
     import superhealth.core.document_extractor as module
 

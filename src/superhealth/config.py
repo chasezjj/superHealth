@@ -59,26 +59,12 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """Verify a password against a stored hash (pbkdf2$iter$salt$hash or legacy salt$hash)."""
+    """Verify a password against a stored PBKDF2 hash (pbkdf2:sha256:iter$salt$hash)."""
     import hmac as _hmac
-
-    if "$" not in stored:
-        # Legacy plaintext — migrate on next save
-        return _hmac.compare_digest(password, stored)
-
-    # Support legacy single-round SHA-256 hashes (salt$hash)
-    if stored.count("$") == 1:
-        salt, hashed = stored.split("$", 1)
-        check = hashlib.sha256(f"{salt}{password}".encode()).hexdigest()
-        return _hmac.compare_digest(check, hashed)
 
     # PBKDF2 format: pbkdf2:sha256:iter$salt$hash
     prefix, salt, hashed = stored.split("$", 2)
-    # Extract iteration count from prefix like "pbkdf2:sha256:200000"
-    try:
-        iterations = int(prefix.rsplit(":", 1)[-1])
-    except ValueError:
-        iterations = 200_000
+    iterations = int(prefix.rsplit(":", 1)[-1])
     check = hashlib.pbkdf2_hmac(
         "sha256", password.encode(), bytes.fromhex(salt), iterations
     ).hex()
@@ -128,6 +114,7 @@ class ClaudeConfig:
     model: str = "claude-sonnet-4-6"  # 默认模型（文本任务）
     vision_model: str = "claude-opus-4-7"  # 视觉/PDF 文档提取专用模型
     max_tokens: int = 2048  # 最大输出 token
+    document_timeout_seconds: float = 300.0  # PDF/图片文档提取超时秒数
     base_url: str = ""  # 自定义 endpoint（留空则用官方地址）
 
     def is_complete(self) -> bool:
@@ -244,6 +231,12 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
             claude_raw.get("max_tokens", 0)
             or os.environ.get("HEALTHY_CLAUDE_MAX_TOKENS", 0)
             or 2048
+        ),
+        document_timeout_seconds=float(
+            claude_raw.get("document_timeout_seconds", 0)
+            or os.environ.get("SUPERHEALTH_CLAUDE_DOCUMENT_TIMEOUT_SECONDS", 0)
+            or os.environ.get("HEALTHY_CLAUDE_DOCUMENT_TIMEOUT_SECONDS", 0)
+            or 300
         ),
         base_url=claude_raw.get("base_url", "")
         or os.environ.get("ANTHROPIC_BASE_URL", "")
@@ -403,6 +396,7 @@ def save_config(config: AppConfig, config_path: Path = CONFIG_PATH) -> None:
         "model": config.claude.model,
         "vision_model": config.claude.vision_model,
         "max_tokens": config.claude.max_tokens,
+        "document_timeout_seconds": config.claude.document_timeout_seconds,
         "base_url": config.claude.base_url,
     }
     raw["baichuan"] = {

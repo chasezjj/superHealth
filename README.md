@@ -212,21 +212,20 @@ python3 -c "from superhealth.database import init_db; init_db()"
 export SUPERHEALTH_DB=~/.superhealth/health.db
 ```
 
-### 启动仪表盘
+### 启动服务
 
 ```bash
-bash scripts/start_dashboard.sh
+# 启动全部服务（dashboard、vitals_receiver、daily_pipeline 定时任务）
+bash scripts/manage_service.sh start dashboard
+bash scripts/manage_service.sh start vitals_receiver
+bash scripts/manage_service.sh schedule daily_pipeline 7 5
 ```
 
-日志写入：
-
-```bash
-~/.superhealth/logs/dashboard/dashboard.nohup.log
-```
+服务由 macOS launchd（或 Linux systemd）托管，重启后自动恢复。
 
 访问 `http://localhost:8505`。
 
-也可以直接运行：
+也可以直接运行（不托管，进程退出即停止）：
 
 ```bash
 PYTHONPATH=src python3 -m superhealth dashboard --server.port=8505
@@ -248,6 +247,32 @@ docker compose up -d
 
 ---
 
+## 服务管理
+
+```bash
+# 启动 / 停止 / 查看状态
+bash scripts/manage_service.sh start   dashboard
+bash scripts/manage_service.sh start   vitals_receiver
+bash scripts/manage_service.sh stop    dashboard
+bash scripts/manage_service.sh stop    vitals_receiver
+bash scripts/manage_service.sh status  dashboard
+bash scripts/manage_service.sh status  vitals_receiver
+
+# 设置 daily_pipeline 定时时间（每天 7:05）
+bash scripts/manage_service.sh schedule daily_pipeline 7 5
+bash scripts/manage_service.sh stop    daily_pipeline
+
+# 日志位置
+~/.superhealth/logs/services/dashboard.out.log
+~/.superhealth/logs/services/dashboard.err.log
+~/.superhealth/logs/services/vitals_receiver.out.log
+~/.superhealth/logs/services/vitals_receiver.err.log
+~/.superhealth/logs/services/daily_pipeline.out.log
+~/.superhealth/logs/services/daily_pipeline.err.log
+```
+
+---
+
 ## 常用命令
 
 ```bash
@@ -260,9 +285,6 @@ python3 -m superhealth.daily_pipeline --test-mode
 python3 -m superhealth.collectors.fetch_garmin --login
 python3 -m superhealth.collectors.fetch_garmin --date 2026-05-05
 python3 -m superhealth.collectors.fetch_garmin --range 2026-05-01 2026-05-05
-
-# Health Auto Export REST 接收端
-bash scripts/start_vitals_receiver.sh
 
 # 天气与日历
 python3 -m superhealth.collectors.weather_collector --date 2026-05-05

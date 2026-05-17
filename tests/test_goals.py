@@ -103,37 +103,6 @@ class TestGoalManagerAddGoal:
         assert progress[0]["date"] == today.isoformat()
         assert progress[0]["current_value"] == 120
 
-    def test_add_goal_migrates_legacy_goals_columns(self, tmp_path):
-        db_path = tmp_path / "legacy.db"
-        with db.get_conn(db_path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE goals (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    metric_key TEXT NOT NULL,
-                    direction TEXT NOT NULL,
-                    baseline_value REAL,
-                    start_date TEXT NOT NULL
-                )
-                """
-            )
-
-        mgr = GoalManager(db_path)
-        goal_id = mgr.add_goal(
-            name="旧库目标",
-            metric_key="steps_mean_7d",
-            direction="increase",
-            baseline_value=8000,
-            target=10000,
-        )
-
-        goal = mgr.get_goal(goal_id)
-        assert goal is not None
-        assert "description" not in goal
-        assert goal["status"] == "active"
-        assert goal["target_value"] == 10000
-
     def test_add_goal_invalid_metric(self, tmp_db):
         mgr = GoalManager(tmp_db)
         with pytest.raises(ValueError, match="不支持的指标 key"):
@@ -307,6 +276,10 @@ class TestGoalManagerDeleteWithExperiments:
         from superhealth.feedback.experiment_manager import ExperimentManager
         mgr = GoalManager(tmp_db)
         gid = self._seed_goal(tmp_db, mgr)
+        with db.get_conn(tmp_db) as conn:
+            db.insert_goal_progress(
+                conn, goal_id=gid, date="2025-04-03", current_value=120, progress_pct=50
+            )
         exp_mgr = ExperimentManager(tmp_db)
         eid = exp_mgr.create_draft(
             name="等长运动",
@@ -320,10 +293,13 @@ class TestGoalManagerDeleteWithExperiments:
         exp_mgr.cancel(eid)         # active → draft
         exp_mgr.delete_draft(eid)   # 草稿删干净
         mgr.delete_goal(gid)
-        assert mgr.get_goal(gid) is None
+        goal = mgr.get_goal(gid)
+        assert goal is not None
+        assert goal["status"] == "deleted"
+        assert mgr.get_goal_progress(gid, days=30)
 
     def test_delete_allowed_with_only_historical_experiments(self, tmp_db):
-        """已结案 (completed/reverted) 的实验不应阻止目标删除。"""
+        """已结案 (completed/reverted) 的实验不应阻止目标归档。"""
         from superhealth.feedback.experiment_manager import ExperimentManager
         mgr = GoalManager(tmp_db)
         gid = self._seed_goal(tmp_db, mgr)
@@ -340,7 +316,36 @@ class TestGoalManagerDeleteWithExperiments:
         with db.get_conn(tmp_db) as conn:
             conn.execute("UPDATE experiments SET status='completed' WHERE id=?", (eid,))
         mgr.delete_goal(gid)
+        assert mgr.get_goal(gid)["status"] == "deleted"
+
+    def test_hard_delete_removes_goal_and_progress(self, tmp_db):
+        """永久删除仍可用，但会级联删除 goal_progress。"""
+        mgr = GoalManager(tmp_db)
+        gid = self._seed_goal(tmp_db, mgr)
+        with db.get_conn(tmp_db) as conn:
+            db.insert_goal_progress(
+                conn, goal_id=gid, date="2025-04-03", current_value=120, progress_pct=50
+            )
+        assert mgr.get_goal_progress(gid, days=30)
+
+        mgr.hard_delete_goal(gid)
+
         assert mgr.get_goal(gid) is None
+        assert mgr.get_goal_progress(gid, days=30) == []
+
+    def test_init_db_preserves_goal_progress(self, tmp_db):
+        """重复初始化 schema 不应通过重建 goals 级联删除进度快照。"""
+        mgr = GoalManager(tmp_db)
+        gid = self._seed_goal(tmp_db, mgr)
+        with db.get_conn(tmp_db) as conn:
+            db.insert_goal_progress(
+                conn, goal_id=gid, date="2025-04-03", current_value=120, progress_pct=50
+            )
+
+        db.init_db(tmp_db)
+
+        assert mgr.get_goal(gid) is not None
+        assert mgr.get_goal_progress(gid, days=30)
 
     def test_get_blocking_experiments_returns_only_open(self, tmp_db):
         from superhealth.feedback.experiment_manager import ExperimentManager

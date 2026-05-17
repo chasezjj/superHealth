@@ -23,11 +23,12 @@ from pathlib import Path
 from statistics import mean, variance
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 from superhealth.feedback.effect_tracker import EffectTracker
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 
 class StrategyLearner:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 from superhealth.goals.metrics import (
     METRIC_REGISTRY,
     MIN_BASELINE_DAYS,
@@ -19,52 +20,17 @@ from superhealth.goals.models import VALID_DIRECTIONS, VALID_STATUSES
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
-
-_GOALS_COMPAT_COLUMNS = {
-    "status": "TEXT NOT NULL DEFAULT 'active'",
-    "target_value": "REAL",
-    "target_date": "TEXT",
-    "achieved_date": "TEXT",
-    "notes": "TEXT",
-    "created_at": "TIMESTAMP",
-    "updated_at": "TIMESTAMP",
-}
-
+DB_PATH = get_db_path()
 
 class GoalManager:
     """阶段性目标管理：CRUD、进度追踪、达成/异常判定。"""
 
-    def __init__(self, db_path: Path = DB_PATH):
-        self.db_path = db_path
+    def __init__(self, db_path: Path | None = None):
+        self.db_path = db_path or get_db_path()
         self.metric_registry = GoalMetricRegistry()
-        self._ensure_goals_schema()
 
     def _get_conn(self):
         return db.get_conn(self.db_path)
-
-    def _ensure_goals_schema(self) -> None:
-        """补齐旧数据库中的 goals 兼容列。
-
-        部分本地库是在 goals 表补齐 lifecycle/target 字段前创建的。
-        Dashboard/CLI 直接实例化 GoalManager 时可能没有先运行完整 schema 初始化，
-        因此在管理器入口做一次轻量列迁移，避免新增目标或更新状态时报 no column。
-        """
-        with self._get_conn() as conn:
-            exists = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'goals'"
-            ).fetchone()
-            if not exists:
-                return
-
-            columns = {
-                row["name"]
-                for row in conn.execute("PRAGMA table_info(goals)").fetchall()
-            }
-            for col_name, col_type in _GOALS_COMPAT_COLUMNS.items():
-                if col_name in columns:
-                    continue
-                conn.execute(f"ALTER TABLE goals ADD COLUMN {col_name} {col_type}")
 
     # ── CRUD ──────────────────────────────────────────────────────────
 
@@ -141,7 +107,7 @@ class GoalManager:
             )
             return goal_id
 
-    def list_goals(self, status: Optional[str] = None) -> list[dict]:
+    def list_goals(self, status: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
         """列出目标，可按 status 过滤。"""
         with self._get_conn() as conn:
             if status:
@@ -150,8 +116,9 @@ class GoalManager:
                     (status,),
                 ).fetchall()
             else:
+                where = "" if include_deleted else "WHERE status != 'deleted'"
                 rows = conn.execute(
-                    "SELECT * FROM goals ORDER BY status != 'active', start_date DESC"
+                    f"SELECT * FROM goals {where} ORDER BY status != 'active', start_date DESC"
                 ).fetchall()
             return [dict(row) for row in rows]
 
@@ -245,7 +212,7 @@ class GoalManager:
         return [dict(r) for r in rows]
 
     def delete_goal(self, goal_id: int) -> None:
-        """删除目标及其所有 progress 记录（CASCADE）。
+        """软删除目标，保留 goal_progress 历史记录。
 
         若存在状态为 draft/active/evaluating 的绑定实验，会抛 ValueError，
         要求调用方先到实验追踪页面取消或删除这些实验。
@@ -256,9 +223,30 @@ class GoalManager:
             raise ValueError(
                 f"该目标仍有未结案的绑定实验：{details}。请先到实验追踪页取消或删除后再删除目标。"
             )
+        self.update_status(goal_id, "deleted")
+        log.info("GOAL_SOFT_DELETED id=%d progress_preserved=true", goal_id)
+
+    def hard_delete_goal(self, goal_id: int) -> None:
+        """永久删除目标，数据库外键会级联删除 goal_progress。
+
+        仅供明确需要物理清理时调用。普通 Dashboard/CLI 删除应使用 delete_goal。
+        """
+        blocking = self.get_blocking_experiments(goal_id)
+        if blocking:
+            details = "、".join(f"{e['name']}（{e['status']}）" for e in blocking)
+            raise ValueError(
+                f"该目标仍有未结案的绑定实验：{details}。请先到实验追踪页取消或删除后再删除目标。"
+            )
         with self._get_conn() as conn:
+            progress_count = conn.execute(
+                "SELECT COUNT(*) FROM goal_progress WHERE goal_id = ?", (goal_id,)
+            ).fetchone()[0]
             conn.execute("DELETE FROM goals WHERE id = ?", (goal_id,))
-            log.info("GOAL_DELETED id=%d", goal_id)
+            log.warning(
+                "GOAL_HARD_DELETED id=%d progress_rows_deleted=%d",
+                goal_id,
+                progress_count,
+            )
 
     def get_goal_progress(self, goal_id: int, days: int = 30) -> list[dict]:
         """获取目标的历史进度。"""

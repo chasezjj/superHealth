@@ -43,12 +43,6 @@ class TestDeriveDashboardPassword:
         result = page._derive_dashboard_password("secret", stored)
         assert result == stored  # 没有重新 hash
 
-    def test_input_matching_legacy_plaintext_keeps_stored(self):
-        """legacy plaintext 场景：stored 是明文，输入相同明文应保留 stored。"""
-        stored = "legacy_plain"
-        result = page._derive_dashboard_password("legacy_plain", stored)
-        assert result == stored
-
     def test_different_password_produces_new_hash(self):
         stored = cfg.hash_password("oldpass")
         result = page._derive_dashboard_password("newpass", stored)

@@ -513,18 +513,19 @@ def _render_goal_progress():
 
 
 def _render_goal_history(mgr: "GoalManager"):
-    """渲染历史已达成/已暂停/已放弃目标。"""
+    """渲染历史已达成/已暂停/已放弃/已归档目标。"""
     achieved = mgr.list_goals(status="achieved")
     paused = mgr.list_goals(status="paused")
     abandoned = mgr.list_goals(status="abandoned")
+    deleted = mgr.list_goals(status="deleted")
 
-    history = achieved + paused + abandoned
+    history = achieved + paused + abandoned + deleted
     if not history:
         return
 
     with st.expander("历史目标"):
         for g in history:
-            status_icon = {"achieved": "✓", "paused": "⏸", "abandoned": "✗"}.get(g["status"], "?")
+            status_icon = {"achieved": "✓", "paused": "⏸", "abandoned": "✗", "deleted": "归档"}.get(g["status"], "?")
             st.write(
                 f"{status_icon} {g['name']}（{g['status']}）"
                 + (f" · 达成日：{g['achieved_date']}" if g.get("achieved_date") else "")

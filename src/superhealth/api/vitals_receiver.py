@@ -94,11 +94,7 @@ def _parse_payload(payload: dict) -> list[dict]:
     每个元素是一个字典，key 为 vitals 表字段名（systolic/diastolic/
     weight_kg/body_fat_pct/heart_rate），外加 measured_at。
     """
-    metrics_list = (
-        payload.get("data", {}).get("metrics", [])
-        # v1 格式兼容
-        or payload.get("metrics", [])
-    )
+    metrics_list = payload.get("data", {}).get("metrics", [])
 
     # 按 measured_at 聚合：{measured_at: {field: value}}
     by_time: dict[str, dict] = defaultdict(dict)

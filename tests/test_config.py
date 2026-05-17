@@ -192,7 +192,18 @@ class TestLoadConfig:
         assert conf.claude.api_key == ""
         assert conf.claude.model == "claude-sonnet-4-6"
         assert conf.claude.max_tokens == 2048
+        assert conf.claude.document_timeout_seconds == 300
         assert conf.claude.base_url == ""
+
+    def test_load_claude_document_timeout_from_env(self, tmp_path):
+        toml_file = tmp_path / "config.toml"
+        with patch.dict(
+            os.environ,
+            {"SUPERHEALTH_CLAUDE_DOCUMENT_TIMEOUT_SECONDS": "600"},
+            clear=False,
+        ):
+            conf = cfg.load(toml_file)
+        assert conf.claude.document_timeout_seconds == 600
 
     def test_load_claude_base_url_anthropic_env(self, tmp_path):
         toml_file = tmp_path / "config.toml"
@@ -403,13 +414,6 @@ class TestPasswordHashing:
         assert cfg.verify_password("same", h1)
         assert cfg.verify_password("same", h2)
 
-    def test_plaintext_migration(self):
-        """Legacy plaintext passwords should still work."""
-        assert cfg.verify_password("plain", "plain")
-
-    def test_plaintext_wrong_password_rejected(self):
-        assert cfg.verify_password("plain", "other") is False
-
     def test_hash_format_starts_with_pbkdf2(self):
         hashed = cfg.hash_password("p")
         assert hashed.startswith("pbkdf2:sha256:200000$")
@@ -419,15 +423,6 @@ class TestPasswordHashing:
         hashed = cfg.hash_password("p")
         # split("$", 2) -> 3 parts
         assert len(hashed.split("$")) == 3
-
-    def test_legacy_single_round_sha256_hash(self):
-        """旧格式 salt$hash 仍能验证。"""
-        salt = "cafebabe"
-        pwd = "legacypass"
-        h = hashlib.sha256(f"{salt}{pwd}".encode()).hexdigest()
-        stored = f"{salt}${h}"
-        assert cfg.verify_password("legacypass", stored)
-        assert cfg.verify_password("wrong", stored) is False
 
     def test_pbkdf2_with_custom_iteration_count(self):
         """支持自定义迭代次数（向前兼容更低成本的旧 hash）。"""
@@ -439,15 +434,6 @@ class TestPasswordHashing:
         ).hex()
         stored = f"pbkdf2:sha256:{iterations}${salt}${h}"
         assert cfg.verify_password("x", stored)
-
-    def test_pbkdf2_invalid_iteration_count_falls_back_to_default(self):
-        """迭代数解析失败时回退到 200_000。"""
-        salt = "feed" * 16
-        pwd = "y"
-        # 用默认 200_000 计算的 hash，但前缀写非法
-        h = hashlib.pbkdf2_hmac("sha256", pwd.encode(), bytes.fromhex(salt), 200_000).hex()
-        stored = f"pbkdf2:sha256:not-a-number${salt}${h}"
-        assert cfg.verify_password("y", stored)
 
     def test_hash_password_uses_unique_random_salts(self):
         """各次 hash_password 调用使用独立随机 salt。"""

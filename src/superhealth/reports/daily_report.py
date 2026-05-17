@@ -21,12 +21,13 @@ from typing import Optional
 
 from superhealth import database as db
 from superhealth.analysis.trends import TrendAnalyzer
+from superhealth.config import get_db_path
 from superhealth.core.assessment_models import RecoveryModel
 from superhealth.core.health_profile_builder import HealthProfile
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 

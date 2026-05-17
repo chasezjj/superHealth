@@ -9,6 +9,27 @@ from superhealth.log_config import setup_logging
 
 setup_logging()
 
+import logging
+
+from superhealth.database import DEFAULT_DB_PATH, get_conn
+
+log = logging.getLogger(__name__)
+
+try:
+    with get_conn(DEFAULT_DB_PATH) as _conn:
+        _goal_count = _conn.execute(
+            "SELECT COUNT(*) FROM goals WHERE status = 'active'"
+        ).fetchone()[0]
+        _progress_count = _conn.execute("SELECT COUNT(*) FROM goal_progress").fetchone()[0]
+    log.info(
+        "DASHBOARD_START db=%s active_goals=%d goal_progress_rows=%d",
+        DEFAULT_DB_PATH,
+        _goal_count,
+        _progress_count,
+    )
+except Exception as e:
+    log.warning("DASHBOARD_START_DB_CHECK_FAILED db=%s error=%s", DEFAULT_DB_PATH, e)
+
 import streamlit as st
 
 st.set_page_config(

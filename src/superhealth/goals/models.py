@@ -37,5 +37,13 @@ class GoalProgress(BaseModel):
     note: Optional[str] = None
 
 
-VALID_STATUSES = {"active", "off_track", "achieved", "paused", "abandoned", "superseded"}
+VALID_STATUSES = {
+    "active",
+    "off_track",
+    "achieved",
+    "paused",
+    "abandoned",
+    "superseded",
+    "deleted",
+}
 VALID_DIRECTIONS = {"decrease", "increase", "stabilize"}

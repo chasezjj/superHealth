@@ -36,12 +36,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 from superhealth.core.assessment_models import RecoveryModel
 from superhealth.feedback.effect_tracker import EffectTracker
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 
 def compute_quality_score(
@@ -303,19 +304,6 @@ def run(target_date: str | None = None, db_path: Path = DB_PATH) -> bool:
             compliance=compliance,
             actual_action=actual_action,
         )
-        if not updated:
-            # 向后兼容：旧日期无 Phase 1 记录，直接 INSERT
-            db.insert_recommendation_feedback(
-                conn,
-                date=yesterday,
-                report_id=report_id,
-                recommendation_type="exercise",
-                recommendation_content=None,  # 旧日期无推荐内容
-                compliance=compliance,
-                actual_action=actual_action,
-                tracked_metrics=None,
-            )
-
         log.info(
             "auto_feedback: %s 写入完成 compliance=%d action=%s",
             yesterday,

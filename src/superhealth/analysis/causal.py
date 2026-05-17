@@ -21,9 +21,10 @@ import numpy as np
 
 from superhealth import database as db
 from superhealth.analysis.correlation import CorrelationAnalyzer
+from superhealth.config import get_db_path
 
 log = logging.getLogger(__name__)
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 # 复用 correlation.py 的指标映射，保持一致性
 FIELD_MAP = {

@@ -25,6 +25,7 @@ from typing import Any
 from superhealth import database as db
 from superhealth.collectors.outlook_collector import fetch_calendar
 from superhealth.collectors.weather_collector import fetch_weather
+from superhealth.config import get_db_path
 from superhealth.config import load as load_config
 from superhealth.core.assessment_models import run_assessments
 from superhealth.core.baichuan_advisor import BaichuanMedicalAdvisor
@@ -36,7 +37,7 @@ from superhealth.reports.daily_report import DailyReportGenerator
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 DATA_DIR = Path(__file__).parent.parent.parent.parent / "data" / "daily-reports"
 
 

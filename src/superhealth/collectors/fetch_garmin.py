@@ -27,6 +27,7 @@ from pathlib import Path
 import requests
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 from superhealth.models import (
     ActivityData,
     BodyBatteryData,
@@ -59,7 +60,6 @@ _PKG_DIR = Path(__file__).parent.parent  # src/superhealth/
 BASE_DIR = _PKG_DIR.parent.parent  # superhealth/ (project root)
 OUTPUT_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
 SESSION_FILE = Path.home() / ".superhealth" / "garmin_cn_session.json"
-_LEGACY_CONFIG_FILE = Path.home() / ".garmin_cn_config.json"  # 旧格式，向后兼容
 
 SSO_BASE = "https://sso.garmin.cn"
 CONNECT_BASE = "https://connect.garmin.cn"
@@ -254,16 +254,12 @@ def _save_config(email: str, password: str) -> None:
 
 
 def _load_config() -> tuple[str | None, str | None]:
-    """从 ~/.superhealth/config.toml 加载账号密码；向后兼容旧 JSON 文件。"""
+    """从 ~/.superhealth/config.toml 加载账号密码。"""
     from superhealth.config import load as load_cfg
 
     conf = load_cfg()
     if conf.garmin.is_complete():
         return conf.garmin.email, conf.garmin.password
-    # 向后兼容：旧 ~/.garmin_cn_config.json
-    if _LEGACY_CONFIG_FILE.exists():
-        data = json.loads(_LEGACY_CONFIG_FILE.read_text())
-        return data.get("email"), data.get("password")
     return None, None
 
 
@@ -712,7 +708,7 @@ def save_day(session, user_id, day, retry_empty=True, skip_existing=False):
 
     # 跳过已存在记录
     if skip_existing:
-        db_path = BASE_DIR / "health.db"
+        db_path = get_db_path()
         if db_path.exists():
             db.init_db(db_path)
             with db.get_conn(db_path) as conn:
@@ -740,7 +736,7 @@ def save_day(session, user_id, day, retry_empty=True, skip_existing=False):
     md_path.write_text(daily_health_to_markdown(dh), encoding="utf-8")
 
     # 写入 SQLite
-    db_path = BASE_DIR / "health.db"
+    db_path = get_db_path()
     db.init_db(db_path)
     with db.get_conn(db_path) as conn:
         db.upsert_daily_health(conn, dh)

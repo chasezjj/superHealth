@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import platform
+import plistlib
 import re
-import signal
 import socket
 import subprocess
 import time
@@ -47,7 +48,7 @@ def _derive_dashboard_password(new_pwd: str, stored: str) -> str:
         return ""
     from superhealth.config import verify_password
 
-    if verify_password(new_pwd, stored):
+    if stored and verify_password(new_pwd, stored):
         return stored  # 输入的是原密码，保持原 hash
     return hash_password(new_pwd)
 
@@ -75,6 +76,7 @@ def _save_current_form_config(base_config: AppConfig) -> AppConfig:
             model=cast(str, state.get("cfg_claude_model", base_config.claude.model)),
             vision_model=base_config.claude.vision_model,
             max_tokens=int(state.get("cfg_claude_mt", base_config.claude.max_tokens)),
+            document_timeout_seconds=base_config.claude.document_timeout_seconds,
             base_url=cast(str, state.get("cfg_claude_url", base_config.claude.base_url)),
         ),
         baichuan=BaichuanConfig(
@@ -239,11 +241,16 @@ def _read_log_tail(path: Path, lines: int = 200) -> str:
 # ---------------------------------------------------------------------------
 
 _VITALS_PID_FILE = Path.home() / ".superhealth" / "vitals_receiver.pid"
-_VITALS_LOG_FILE = (
-    Path.home() / ".superhealth" / "logs" / "vitals" / "vitals_receiver.log"
+_VITALS_MANAGED_OUT_LOG_FILE = (
+    Path.home() / ".superhealth" / "logs" / "services" / "vitals_receiver.out.log"
 )
+_VITALS_MANAGED_ERR_LOG_FILE = (
+    Path.home() / ".superhealth" / "logs" / "services" / "vitals_receiver.err.log"
+)
+_VITALS_START_HEALTH_ATTEMPTS = 60
+_VITALS_START_HEALTH_DELAY_SECONDS = 0.5
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_VITALS_START_SCRIPT = _REPO_ROOT / "scripts" / "start_vitals_receiver.sh"
+_SERVICE_MANAGER_SCRIPT = _REPO_ROOT / "scripts" / "manage_service.sh"
 
 
 def _local_ip() -> str:
@@ -289,7 +296,7 @@ def _vitals_pid() -> int | None:
         return None
     try:
         pid = int(_VITALS_PID_FILE.read_text().strip())
-        os.kill(pid, 0)  # 发送 signal 0 仅用于检测进程是否存在
+        os.kill(pid, 0)  # signal 0 仅用于检测进程是否存在
         return pid
     except (ValueError, ProcessLookupError, PermissionError):
         _VITALS_PID_FILE.unlink(missing_ok=True)
@@ -336,48 +343,140 @@ def _pid_listening_on_port(port: int) -> int | None:
     return None
 
 
+def _run_service_script(args: list[str]) -> tuple[bool, str]:
+    script = _SERVICE_MANAGER_SCRIPT
+    if not script.exists():
+        return False, f"脚本不存在：{script}"
+    try:
+        result = subprocess.run(
+            ["bash", str(script), *args],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=60,
+        )
+        return True, (result.stdout or "操作已完成").strip()
+    except subprocess.TimeoutExpired:
+        return False, "操作超时，请在终端检查服务状态"
+    except subprocess.CalledProcessError as e:
+        err = (e.stderr or e.stdout or str(e)).strip()
+        return False, err or "操作失败"
+    except Exception as e:
+        return False, str(e)
+
+
+def _start_managed_service(target: str) -> tuple[bool, str]:
+    return _run_service_script(["start", target])
+
+
+def _stop_managed_service(target: str) -> tuple[bool, str]:
+    return _run_service_script(["stop", target])
+
+
+def _schedule_managed_daily_pipeline(hour: str, minute: str) -> tuple[bool, str]:
+    return _run_service_script(["schedule", "daily_pipeline", hour, minute])
+
+
+_DP_LAUNCHD_LABEL = "com.superhealth.daily-pipeline"
+_DP_LAUNCHD_PLIST = (
+    Path.home() / "Library" / "LaunchAgents" / f"{_DP_LAUNCHD_LABEL}.plist"
+)
+
+
+def _daily_pipeline_managed_schedule() -> tuple[bool, str, str]:
+    """Return (is_active, hour, minute) from the OS service manager.
+
+    Reads launchd plist on macOS or systemd timer on Linux.
+    Falls back to ("7", "0") defaults when not configured.
+    """
+    system = platform.system()
+    if system == "Darwin":
+        if not _DP_LAUNCHD_PLIST.exists():
+            return False, "7", "0"
+        try:
+            with open(_DP_LAUNCHD_PLIST, "rb") as f:
+                plist = plistlib.load(f)
+            cal = plist.get("StartCalendarInterval", {})
+            h = str(cal.get("Hour", 7))
+            m = str(cal.get("Minute", 0))
+        except Exception:
+            return False, "7", "0"
+        uid = os.getuid()
+        result = subprocess.run(
+            ["launchctl", "print", f"gui/{uid}/{_DP_LAUNCHD_LABEL}"],
+            capture_output=True,
+            timeout=5,
+        )
+        return result.returncode == 0, h, m
+
+    if system == "Linux":
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "superhealth-daily-pipeline.timer"],
+            capture_output=True,
+            text=True,
+        )
+        is_active = result.stdout.strip() == "active"
+        h, m = "7", "0"
+        if is_active:
+            cat = subprocess.run(
+                ["systemctl", "--user", "cat", "superhealth-daily-pipeline.timer"],
+                capture_output=True,
+                text=True,
+            )
+            match = re.search(r"OnCalendar\s*=\s*\S+\s+(\d+):(\d+)", cat.stdout)
+            if match:
+                h, m = match.group(1), match.group(2)
+        return is_active, h, m
+
+    return False, "7", "0"
+
+
 def _start_vitals_receiver() -> tuple[bool, str]:
     """后台启动 vitals_receiver，返回 (成功, 消息)。"""
     if _vitals_pid() is not None:
         return False, "服务已在运行中"
     try:
         cfg = load()
-        _VITALS_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["bash", str(_VITALS_START_SCRIPT)],
-            cwd=str(_REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        pid = int(result.stdout.strip().splitlines()[-1])
-        _VITALS_PID_FILE.write_text(str(pid))
-        for _ in range(10):
-            if _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
-                return True, f"服务已启动（PID {pid}），日志：{_VITALS_LOG_FILE}"
-            time.sleep(0.3)
+        ok, msg = _start_managed_service("vitals_receiver")
+        if not ok:
+            return False, f"启动失败: {msg}"
 
-        log_tail = _read_log_tail(_VITALS_LOG_FILE, lines=20)
+        for _ in range(_VITALS_START_HEALTH_ATTEMPTS):
+            if _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
+                pid = _pid_listening_on_port(cfg.vitals.port)
+                if pid is not None:
+                    _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    _VITALS_PID_FILE.write_text(str(pid))
+                    return True, f"服务已由系统托管启动（PID {pid}）"
+                return True, "服务已由系统托管启动"
+            time.sleep(_VITALS_START_HEALTH_DELAY_SECONDS)
+
+        log_file = _VITALS_MANAGED_ERR_LOG_FILE
+        log_tail = _read_log_tail(log_file, lines=20)
+        if not log_tail:
+            log_file = _VITALS_MANAGED_OUT_LOG_FILE
+            log_tail = _read_log_tail(log_file, lines=20)
         if log_tail:
-            return False, f"启动后健康检查失败，请查看日志：{_VITALS_LOG_FILE}\n\n{log_tail}"
-        return False, f"启动后健康检查失败，请查看日志：{_VITALS_LOG_FILE}"
-    except subprocess.CalledProcessError as e:
-        err = (e.stderr or e.stdout or str(e)).strip()
-        return False, f"启动失败: {err}"
+            return False, f"启动后健康检查失败，请查看日志：{log_file}\n\n{log_tail}"
+        return False, (
+            "启动后健康检查失败。macOS launchd 可能仍在延迟拉起服务，"
+            f"请稍后刷新页面；日志：{log_file}"
+        )
     except Exception as e:
         return False, f"启动失败: {e}"
 
 
 def _stop_vitals_receiver() -> tuple[bool, str]:
     """停止 vitals_receiver 进程，返回 (成功, 消息)。"""
-    pid = _vitals_pid()
-    if pid is None:
+    if _vitals_pid() is None:
         return False, "服务未运行"
     try:
-        os.kill(pid, signal.SIGTERM)
+        ok, msg = _stop_managed_service("vitals_receiver")
+        if not ok:
+            return False, f"停止失败: {msg}"
         _VITALS_PID_FILE.unlink(missing_ok=True)
-        return True, f"已发送停止信号（PID {pid}）"
+        return True, msg
     except Exception as e:
         return False, f"停止失败: {e}"
 
@@ -451,9 +550,9 @@ def render() -> None:
             total_days = (sync_end - sync_start).days + 1
             try:
                 from superhealth import database as db
-                from superhealth.collectors.fetch_garmin import BASE_DIR
+                from superhealth.config import get_db_path
 
-                db_path = BASE_DIR / "health.db"
+                db_path = get_db_path()
                 db.init_db(db_path)
                 with db.get_conn(db_path) as _conn:
                     existing_count = _conn.execute(
@@ -475,11 +574,11 @@ def render() -> None:
             else:
                 from superhealth import database as db
                 from superhealth.collectors.fetch_garmin import (
-                    BASE_DIR,
                     GarminAuthError,
                     _load_session,
                     save_day,
                 )
+                from superhealth.config import get_db_path
 
                 try:
                     _session, _user_id = _load_session()
@@ -496,7 +595,7 @@ def render() -> None:
                     skipped: list[str] = []
                     fetch_errors: list[tuple[str, str]] = []
 
-                    _db_path = BASE_DIR / "health.db"
+                    _db_path = get_db_path()
                     db.init_db(_db_path)
                     with db.get_conn(_db_path) as _conn:
                         for i, _day in enumerate(days):
@@ -613,8 +712,9 @@ def render() -> None:
         else:
             st.caption("公网 IP 获取失败；如有固定公网 IP 或域名，请按同样格式填写。")
         st.caption("接收服务日志")
-        st.code(str(_VITALS_LOG_FILE), language="text")
-        st.caption("修改 API Token / Host / Port 后，请先点击页面底部的“保存配置”，再启动接收服务。")
+        st.code(str(_VITALS_MANAGED_OUT_LOG_FILE), language="text")
+        st.code(str(_VITALS_MANAGED_ERR_LOG_FILE), language="text")
+        st.caption("修改 API Token / Host / Port 后，请先点击页面底部的\"保存配置\"，再启动接收服务。")
 
         st.divider()
         pid = _vitals_pid()
@@ -883,7 +983,7 @@ def render() -> None:
     # ========================================================================
     # B. Crontab — only Healthy jobs
     # ========================================================================
-    st.header("定时任务 (crontab)")
+    st.header("定时任务")
 
     crontab_raw = _get_crontab()
     crontab_lines = crontab_raw.splitlines()
@@ -903,20 +1003,14 @@ def render() -> None:
 6. **策略学习** — 根据长期效果数据调整建议策略参数，使建议越来越贴合个人状态
 7. **预约提醒** — 检查即将到来的就医、检查等日程，提前发送提醒通知
 
-完整日志保存在 `~/.superhealth/logs/cron/` 目录下。
+定时任务会交给当前操作系统托管：macOS 使用 launchd，Linux 使用 systemd。
 """
     )
 
-    dp_line = next((line for line in crontab_lines if _is_daily_pipeline_job(line)), None)
-    if dp_line:
-        dp_parsed = _parse_cron_line(dp_line)
-        if dp_parsed:
-            dp_m_init, dp_h_init = dp_parsed[0], dp_parsed[1]
-        else:
-            dp_m_init, dp_h_init = "0", "7"
-        st.success("状态：已启用")
+    dp_active, dp_h_init, dp_m_init = _daily_pipeline_managed_schedule()
+    if dp_active:
+        st.success(f"状态：已启用（每天 {dp_h_init}:{dp_m_init.zfill(2)}）")
     else:
-        dp_m_init, dp_h_init = "0", "7"
         st.warning("状态：未启用 — 设置好时间后点击「保存定时计划」即可启用")
 
     col_m, col_h, col_label = st.columns([1, 1, 6])
@@ -927,26 +1021,18 @@ def render() -> None:
     )
 
     if st.button("保存定时计划", key="btn_dp_save"):
-        new_dp_cron = f"{dp_new_m} {dp_new_h} * * * {_DAILY_PIPELINE_CMD}"
-        sanitized_dp = _sanitize_cron_command(new_dp_cron)
-        if sanitized_dp is None:
-            st.error("时间字段包含非法字符，请检查后重试")
+        if not dp_new_m.isdigit() or not dp_new_h.isdigit():
+            st.error("时间字段必须是数字")
+        elif not (0 <= int(dp_new_m) <= 59 and 0 <= int(dp_new_h) <= 23):
+            st.error("分钟必须为 0–59，小时必须为 0–23")
         else:
-            new_dp_line = _line_with_log_redirect(sanitized_dp)
-            current_lines = _get_crontab().splitlines()
-            updated: list[str] = []
-            replaced = False
-            for _l in current_lines:
-                if _is_daily_pipeline_job(_l):
-                    updated.append(new_dp_line)
-                    replaced = True
-                else:
-                    updated.append(_l)
-            if not replaced:
-                updated.append(new_dp_line)
-            _save_crontab("\n".join(updated) + "\n")
-            st.success("定时计划已保存")
-            st.rerun()
+            ok, msg = _schedule_managed_daily_pipeline(dp_new_h, dp_new_m)
+            if ok:
+                st.success("定时计划已交给系统托管")
+                st.caption(msg)
+                st.rerun()
+            else:
+                st.error(f"保存定时计划失败：{msg}")
 
     # -- 其他 superhealth 定时任务（不含 daily_pipeline）--
     edited_jobs_map: dict[int, str] = {}
@@ -1012,6 +1098,7 @@ def render() -> None:
                 model=claude_model,
                 vision_model=config.claude.vision_model,
                 max_tokens=int(claude_max_tokens),
+                document_timeout_seconds=config.claude.document_timeout_seconds,
                 base_url=claude_base_url,
             ),
             baichuan=BaichuanConfig(

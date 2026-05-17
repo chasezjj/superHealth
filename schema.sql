@@ -396,29 +396,3 @@ ALTER TABLE learned_preferences ADD COLUMN status TEXT DEFAULT 'active';
 -- learned_preferences：关联阶段性目标 + 最后有效时间
 ALTER TABLE learned_preferences ADD COLUMN goal_id INTEGER;
 ALTER TABLE learned_preferences ADD COLUMN last_effective_at TEXT;
-
--- goals：CLI/模型兼容字段
-ALTER TABLE goals ADD COLUMN target_date TEXT;
-
--- goals 表结构迁移：移除废弃字段并补齐缺失列
-DROP TABLE IF EXISTS goals_new;
-CREATE TABLE goals_new (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    name              TEXT NOT NULL,
-    status            TEXT NOT NULL DEFAULT 'active',
-    metric_key        TEXT NOT NULL,
-    direction         TEXT NOT NULL,
-    baseline_value    REAL,
-    target_value      REAL,
-    start_date        TEXT NOT NULL,
-    target_date       TEXT,
-    achieved_date     TEXT,
-    notes             TEXT,
-    created_at        TIMESTAMP DEFAULT (datetime('now','localtime')),
-    updated_at        TIMESTAMP DEFAULT (datetime('now','localtime'))
-);
-INSERT INTO goals_new (id, name, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at)
-SELECT id, name, status, metric_key, direction, baseline_value, target_value, start_date, target_date, achieved_date, notes, created_at, updated_at FROM goals;
-DROP TABLE goals;
-ALTER TABLE goals_new RENAME TO goals;
-CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);

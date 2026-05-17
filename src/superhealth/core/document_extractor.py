@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,8 @@ IMAGE_MEDIA_TYPES = {
 }
 
 DEFAULT_CLAUDE_VISION_MODEL = "claude-opus-4-7"
+DOCUMENT_EXTRACT_MAX_ATTEMPTS = 3
+DOCUMENT_EXTRACT_RETRY_BASE_DELAY_SECONDS = 1.0
 
 ALLOWED_DOC_TYPES = (
     "genetic", "annual_checkup", "outpatient", "imaging",
@@ -348,6 +351,58 @@ def resolve_document_model(cfg: ClaudeConfig) -> str:
     return vision_model or model
 
 
+def _is_transient_request_error(error: Exception) -> bool:
+    name = type(error).__name__.lower()
+    message = str(error).lower()
+    markers = (
+        "apiconnectionerror",
+        "apitimeouterror",
+        "connection error",
+        "connection reset",
+        "connection aborted",
+        "network",
+        "request timed out",
+        "timed out",
+        "timeout",
+        "interrupted",
+    )
+    return any(marker in name or marker in message for marker in markers)
+
+
+def _create_message_with_retries(client: Any, cfg: ClaudeConfig, content_blocks: list[dict[str, Any]], max_tokens: int):
+    last_error: Exception | None = None
+    for attempt in range(1, DOCUMENT_EXTRACT_MAX_ATTEMPTS + 1):
+        try:
+            return client.messages.create(
+                model=resolve_document_model(cfg),
+                max_tokens=max_tokens,
+                system=_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": content_blocks}],
+                timeout=cfg.document_timeout_seconds,
+            )
+        except Exception as e:
+            if not _is_transient_request_error(e):
+                raise
+            last_error = e
+            if attempt >= DOCUMENT_EXTRACT_MAX_ATTEMPTS:
+                break
+            delay = DOCUMENT_EXTRACT_RETRY_BASE_DELAY_SECONDS * attempt
+            log.warning(
+                "Document extraction request failed, retrying (%s/%s) in %.1fs: %s",
+                attempt,
+                DOCUMENT_EXTRACT_MAX_ATTEMPTS,
+                delay,
+                e,
+            )
+            time.sleep(delay)
+
+    raise RuntimeError(
+        "AI 提取请求连接失败，已自动重试 3 次仍未成功。"
+        "请检查网络/代理/Base URL 是否可用，或稍后重试；如果 PDF 很大，建议压缩或拆分后上传。"
+        f" 原始错误：{last_error}"
+    ) from last_error
+
+
 class DocumentExtractor:
     """复用 ClaudeConfig，调用 vision 模型提取医学文档。"""
 
@@ -409,12 +464,7 @@ class DocumentExtractor:
         content_blocks.append({"type": "text", "text": instruction})
 
         client = self._get_client()
-        message = client.messages.create(
-            model=resolve_document_model(self.cfg),
-            max_tokens=max_tokens,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content_blocks}],
-        )
+        message = _create_message_with_retries(client, self.cfg, content_blocks, max_tokens)
         text = next(b.text for b in message.content if b.type == "text")
         payload = _parse_json_payload(text)
 

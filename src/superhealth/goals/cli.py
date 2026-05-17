@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
+from superhealth.config import get_db_path
 from superhealth.goals.manager import GoalManager
 from superhealth.goals.metrics import METRIC_REGISTRY
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 
 def cmd_list(args):
@@ -259,7 +259,7 @@ def main():
 
     # list
     p_list = sub.add_parser("list", help="列出当前目标")
-    p_list.add_argument("--status", help="按状态过滤 (active/achieved/paused/abandoned)")
+    p_list.add_argument("--status", help="按状态过滤 (active/achieved/paused/abandoned/deleted)")
 
     # add
     p_add = sub.add_parser("add", help="添加新目标")

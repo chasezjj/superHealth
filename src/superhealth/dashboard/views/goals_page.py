@@ -25,6 +25,25 @@ _GOAL_METRIC_HELP = (
     "血压、体重、体脂等 vitals 指标会先把同一天多次记录合并为日均值。"
 )
 
+_GOAL_ACTION_HELPS = {
+    "achieved": (
+        "目标已经达到时使用。目标会进入历史目标，达成日期会记录为今天；"
+        "绑定的进行中实验会自动结案为 completed，草稿实验会清理；历史进度快照保留。"
+    ),
+    "paused": (
+        "暂时不继续推进但以后可能恢复时使用。目标会进入历史目标；"
+        "绑定的进行中实验会自动回退为 reverted，草稿实验会清理；历史进度快照保留。"
+    ),
+    "abandoned": (
+        "确认不再追这个目标时使用。目标会进入历史目标；"
+        "绑定的进行中实验会自动回退为 reverted，草稿实验会清理；历史进度快照保留。"
+    ),
+    "deleted": (
+        "只把目标从当前视图归档，不做物理删除。目标状态变为 deleted，"
+        "历史进度快照会保留；如果还有未结案实验，需要先处理实验。"
+    ),
+}
+
 
 def _metric_options() -> list[str]:
     """返回 'label (key)' 格式的指标选项列表。"""
@@ -42,6 +61,7 @@ def render():
     mgr = GoalManager(DB_PATH)
 
     _render_add_form(mgr)
+    _render_snapshot_tools(mgr)
 
     goals = mgr.list_goals(status="active")
     if not goals:
@@ -101,7 +121,7 @@ def render():
 def _render_add_form(mgr: GoalManager):
     """新增目标表单。同一时间只能有一个活跃目标。"""
     if mgr.list_goals(status="active"):
-        st.info("当前已有活跃目标，需先达成、暂停或废弃后才能新建。下一步可以去实验追踪里选择适合的行动建议。")
+        st.info("当前已有活跃目标，需先达成、暂停、废弃或归档后才能新建。下一步可以去实验追踪里选择适合的行动建议。")
         return
     with st.expander("＋ 新增目标"):
         with st.form("add_goal_form"):
@@ -170,17 +190,32 @@ def _render_goal_actions(mgr: GoalManager, goal: dict):
     cols = st.columns([1, 1, 1, 1, 5])
 
     with cols[0]:
-        if st.button("达成", key=f"btn_achieve_{gid}", use_container_width=True):
+        if st.button(
+            "达成",
+            key=f"btn_achieve_{gid}",
+            use_container_width=True,
+            help=_GOAL_ACTION_HELPS["achieved"],
+        ):
             mgr.update_status(gid, "achieved")
             st.rerun()
 
     with cols[1]:
-        if st.button("暂停", key=f"btn_pause_{gid}", use_container_width=True):
+        if st.button(
+            "暂停",
+            key=f"btn_pause_{gid}",
+            use_container_width=True,
+            help=_GOAL_ACTION_HELPS["paused"],
+        ):
             mgr.update_status(gid, "paused")
             st.rerun()
 
     with cols[2]:
-        if st.button("废弃", key=f"btn_abandon_{gid}", use_container_width=True):
+        if st.button(
+            "废弃",
+            key=f"btn_abandon_{gid}",
+            use_container_width=True,
+            help=_GOAL_ACTION_HELPS["abandoned"],
+        ):
             mgr.update_status(gid, "abandoned")
             st.rerun()
 
@@ -189,16 +224,25 @@ def _render_goal_actions(mgr: GoalManager, goal: dict):
         blocking = mgr.get_blocking_experiments(gid)
         if blocking:
             st.button(
-                "删除",
+                "归档",
                 key=f"btn_delete_{gid}",
                 use_container_width=True,
                 disabled=True,
-                help="存在未结案的绑定实验，请先到实验追踪页取消或删除后再来删目标。",
+                help=(
+                    _GOAL_ACTION_HELPS["deleted"]
+                    + " 当前存在未结案的绑定实验，请先到实验追踪页取消或删除后再来归档。"
+                ),
             )
             # 状态残留清理
             st.session_state.pop(confirm_key, None)
         elif st.session_state.get(confirm_key):
-            if st.button("确认删除？", key=f"btn_confirm_del_{gid}", use_container_width=True, type="primary"):
+            if st.button(
+                "确认归档？",
+                key=f"btn_confirm_del_{gid}",
+                use_container_width=True,
+                type="primary",
+                help=_GOAL_ACTION_HELPS["deleted"],
+            ):
                 try:
                     mgr.delete_goal(gid)
                 except ValueError as e:
@@ -206,13 +250,41 @@ def _render_goal_actions(mgr: GoalManager, goal: dict):
                 st.session_state.pop(confirm_key, None)
                 st.rerun()
         else:
-            if st.button("删除", key=f"btn_delete_{gid}", use_container_width=True):
+            if st.button(
+                "归档",
+                key=f"btn_delete_{gid}",
+                use_container_width=True,
+                help=_GOAL_ACTION_HELPS["deleted"],
+            ):
                 st.session_state[confirm_key] = True
                 st.rerun()
 
     if blocking:
         names = "、".join(f"{e['name']}（{e['status']}）" for e in blocking)
-        st.warning(f"⚠️ 该目标仍有未结案的绑定实验：{names}。请先到「实验追踪」页取消或删除后再删除目标。")
+        st.warning(f"该目标仍有未结案的绑定实验：{names}。请先到「实验追踪」页取消或删除后再归档目标。")
+
+
+def _render_snapshot_tools(mgr: GoalManager):
+    """渲染目标快照维护工具。"""
+    with st.expander("目标快照维护", expanded=False):
+        col_days, col_btn = st.columns([1, 2])
+        with col_days:
+            days = st.number_input(
+                "重建天数",
+                min_value=1,
+                max_value=180,
+                value=30,
+                step=1,
+                key="goal_snapshot_rebuild_days",
+            )
+        with col_btn:
+            st.write("")
+            st.write("")
+            if st.button("重建目标快照", key="btn_rebuild_goal_snapshots"):
+                today = date.today().isoformat()
+                mgr.track_daily_progress(today, backfill_days=int(days))
+                st.success(f"已重建最近 {int(days)} 天目标快照")
+                st.rerun()
 
 
 def _render_goal_trend(mgr: GoalManager, goal: dict):
@@ -264,15 +336,16 @@ def _render_history(mgr: GoalManager):
     achieved = mgr.list_goals(status="achieved")
     paused = mgr.list_goals(status="paused")
     abandoned = mgr.list_goals(status="abandoned")
+    deleted = mgr.list_goals(status="deleted")
 
-    history = achieved + paused + abandoned
+    history = achieved + paused + abandoned + deleted
     if not history:
         return
 
     with st.expander("历史目标"):
         for g in history:
             gid = g["id"]
-            status_icon = {"achieved": "✓", "paused": "⏸", "abandoned": "✗"}.get(g["status"], "?")
+            status_icon = {"achieved": "✓", "paused": "⏸", "abandoned": "✗", "deleted": "归档"}.get(g["status"], "?")
             label = (
                 f"{status_icon} {g['name']}（{g['status']}）"
                 + (f" · 达成日：{g['achieved_date']}" if g.get("achieved_date") else "")
@@ -288,7 +361,7 @@ def _render_history(mgr: GoalManager):
             with col_del:
                 confirm_key = f"confirm_delete_hist_{gid}"
                 if blocking:
-                    st.button("🗑", key=f"btn_del_hist_{gid}", disabled=True, help="存在未结案的绑定实验")
+                    st.button("归档", key=f"btn_del_hist_{gid}", disabled=True, help="存在未结案的绑定实验")
                     st.session_state.pop(confirm_key, None)
                 elif st.session_state.get(confirm_key):
                     if st.button("确认", key=f"btn_confirm_del_hist_{gid}"):
@@ -299,6 +372,6 @@ def _render_history(mgr: GoalManager):
                         st.session_state.pop(confirm_key, None)
                         st.rerun()
                 else:
-                    if st.button("🗑", key=f"btn_del_hist_{gid}"):
+                    if st.button("归档", key=f"btn_del_hist_{gid}", disabled=g["status"] == "deleted"):
                         st.session_state[confirm_key] = True
                         st.rerun()

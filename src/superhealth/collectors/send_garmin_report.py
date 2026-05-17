@@ -52,12 +52,7 @@ def send_report(day_str: str) -> int:
     if report_path.exists():
         return send_comprehensive_report(report_path, day_str, CHANNEL, TARGET, ACCOUNT_ID)
 
-    # 降级到旧的分析报告
-    legacy_path = DATA_DIR / f"{day_str}-analysis.md"
-    if legacy_path.exists():
-        return send_legacy_report(legacy_path, day_str, CHANNEL, TARGET, ACCOUNT_ID)
-
-    print(f"报告文件不存在: {advanced_path} 或 {report_path} 或 {legacy_path}", file=sys.stderr)
+    print(f"报告文件不存在: {advanced_path} 或 {report_path}", file=sys.stderr)
     return 1
 
 
@@ -157,77 +152,6 @@ def send_comprehensive_report(
         lines.extend(["", "⚠️ 注意:"])
         for c in cautions[:3]:  # 最多3条
             lines.append(f"  • {c}")
-
-    message = "\n".join(lines)
-
-    cmd = [
-        "openclaw",
-        "message",
-        "send",
-        "--channel",
-        channel,
-        "-t",
-        target,
-        "--account",
-        account_id,
-        "--message",
-        message,
-    ]
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    return proc.returncode
-
-
-def send_legacy_report(path: Path, day_str: str, channel: str, target: str, account_id: str) -> int:
-    """发送旧的分析报告（兼容模式）。"""
-    text = path.read_text(encoding="utf-8")
-
-    recovery = extract(r"- 恢复评级：\*\*(.+?)\*\*", text, "未知")
-    intensity = extract(r"- 建议活动强度：\*\*(.+?)\*\*", text, "未知")
-    score = extract(r"- 恢复综合分（内部打分）：\*\*(.+?)\*\*", text, "") or extract(
-        r"- 综合判断分：\*\*(.+?)\*\*", text, "未知"
-    )
-    sleep_line = extract(r"- 睡眠：(.+)", text, "")
-    body_battery = extract(r"- 起床 Body Battery：(.+)", text, "")
-    hrv = extract(r"- HRV：(.+)", text, "")
-    resting_hr = extract(r"- 静息心率：(.+)", text, "")
-    stress = extract(r"- 平均压力：(.+)", text, "")
-
-    suggestion_match = re.search(r"## 今日活动建议\n((?:- .+\n?)*)", text, re.MULTILINE)
-    suggestions = []
-    if suggestion_match:
-        for line in suggestion_match.group(1).splitlines():
-            line = line.strip()
-            if line.startswith("- "):
-                suggestions.append(line[2:])
-    suggestions = suggestions[:3]
-
-    lines = [
-        f"Garmin 日报（{day_str}）",
-        f"恢复评级：{recovery}",
-        f"建议强度：{intensity}",
-        f"恢复综合分：{score}",
-        "",
-        "关键指标：",
-    ]
-
-    if sleep_line:
-        lines.append(f"- 睡眠：{sleep_line}")
-    if body_battery:
-        lines.append(f"- 起床 Body Battery：{body_battery}")
-    if hrv:
-        lines.append(f"- HRV：{hrv}")
-    if resting_hr:
-        lines.append(f"- 静息心率：{resting_hr}")
-    if stress:
-        lines.append(f"- 平均压力：{stress}")
-
-    if suggestions:
-        lines.extend(["", "今日建议："])
-        lines.extend(f"- {item}" for item in suggestions)
 
     message = "\n".join(lines)
 

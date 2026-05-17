@@ -67,7 +67,13 @@ class TestSaveConfig:
             garmin=cfg.GarminConfig(email="g@test.com", password="gp"),
             wechat=cfg.WechatConfig(account_id="aid", channel="ch", target="tgt"),
             vitals=cfg.VitalsConfig(api_token="tok", host="127.0.0.1", port=8080),
-            claude=cfg.ClaudeConfig(api_key="ck", model="m", max_tokens=512, base_url=""),
+            claude=cfg.ClaudeConfig(
+                api_key="ck",
+                model="m",
+                max_tokens=512,
+                document_timeout_seconds=600,
+                base_url="",
+            ),
             baichuan=cfg.BaichuanConfig(api_key="bk", model="bm", max_tokens=256),
             advisor=cfg.AdvisorConfig(mode="both"),
             weather=cfg.WeatherConfig(
@@ -92,6 +98,7 @@ class TestSaveConfig:
         assert loaded.wechat.account_id == "aid"
         assert loaded.vitals.port == 8080
         assert loaded.claude.max_tokens == 512
+        assert loaded.claude.document_timeout_seconds == 600
         assert loaded.advisor.mode == "both"
         assert loaded.weather.city == "北京"
         assert loaded.weather.api_host == "myhost.example"

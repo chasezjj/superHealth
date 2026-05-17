@@ -31,11 +31,12 @@ from statistics import mean, stdev
 from typing import Optional
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 from superhealth.collectors.outlook_collector import _build_summary
 
 log = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 # 用户反馈中的干扰关键词（运动效果评估时应排除负向信号）
 CONTAMINATION_KEYWORDS = [

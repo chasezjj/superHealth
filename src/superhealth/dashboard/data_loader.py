@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -22,6 +23,8 @@ from superhealth.database import (
     query_multiple_metrics,
 )
 from superhealth.user_profile import read_profile
+
+log = logging.getLogger(__name__)
 
 # ─── 基础查询 ─────────────────────────────────────────────────────────
 
@@ -683,6 +686,14 @@ def load_recent_goal_progress(days: int = 3) -> dict[int, pd.DataFrame]:
     with get_conn(DEFAULT_DB_PATH) as conn:
         goal_rows = conn.execute("SELECT id FROM goals WHERE status = 'active'").fetchall()
         goal_ids = [r["id"] for r in goal_rows]
+        total_rows = conn.execute("SELECT COUNT(*) FROM goal_progress").fetchone()[0]
+        if goal_ids and total_rows == 0:
+            log.warning(
+                "GOAL_PROGRESS_EMPTY_ON_READ db=%s active_goal_ids=%s days=%d",
+                DEFAULT_DB_PATH,
+                goal_ids,
+                days,
+            )
 
         result = {}
         for gid in goal_ids:

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""分析 Garmin 日报数据，生成恢复评分和活动建议。
-
-优先从 JSON 文件加载结构化数据（由 fetch_garmin.py 生成），
-若 JSON 不存在则回退到解析 Markdown 文件（兼容历史数据）。
-"""
+"""分析 Garmin 日报数据，生成恢复评分和活动建议。"""
 
 import argparse
 import logging
-import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import mean
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+
+from superhealth.config import get_db_path
 
 log = logging.getLogger(__name__)
 
@@ -24,29 +21,14 @@ DATA_DIR = BASE_DIR / "data" / "activity-data" / "garmin"
 
 
 def load_day(day_str: str) -> dict[str, Any] | None:
-    """加载某天的数据为扁平字典。优先 SQLite，降级到 Markdown（含 archive/）。"""
-    _DB_PATH = BASE_DIR / "health.db"
-    if _DB_PATH.exists():
-        try:
-            from superhealth import database as db
+    """加载某天的数据为扁平字典，从 SQLite 读取。"""
+    _DB_PATH = get_db_path()
+    if not _DB_PATH.exists():
+        return None
+    from superhealth import database as db
 
-            with db.get_conn(_DB_PATH) as conn:
-                flat = db.query_daily_flat(conn, day_str)
-                if flat:
-                    return flat
-        except Exception as e:
-            log.debug("SQLite 读取失败，降级: %s", e)
-
-    # 当月文件在顶层，历史文件在 archive/YYYY-MM/
-    year_month = day_str[:7]
-    for md_path in [
-        DATA_DIR / f"{day_str}.md",
-        DATA_DIR / "archive" / year_month / f"{day_str}.md",
-    ]:
-        if md_path.exists():
-            return _parse_markdown(md_path)
-
-    return None
+    with db.get_conn(_DB_PATH) as conn:
+        return db.query_daily_flat(conn, day_str) or None
 
 
 def load_recent(current_day: date, days_back: int = 5) -> list[dict[str, Any]]:
@@ -60,85 +42,6 @@ def load_recent(current_day: date, days_back: int = 5) -> list[dict[str, Any]]:
     return items
 
 
-# ─── Markdown 解析（兼容历史数据）────────────────────────────────
-
-
-def _section(text: str, title: str) -> str:
-    pattern = rf"## {re.escape(title)}\n(.*?)(?=\n## |\Z)"
-    m = re.search(pattern, text, re.S)
-    return m.group(1).strip() if m else ""
-
-
-def _m1(pattern: str, text: str, cast: Callable[[str], Any] = str, default: Any = None) -> Any:
-    m = re.search(pattern, text, re.MULTILINE)
-    if not m:
-        return default
-    try:
-        return cast(m.group(1))
-    except Exception:
-        return default
-
-
-def _parse_hm(s: str) -> Optional[int]:
-    if not s:
-        return None
-    m = re.match(r"(\d+)h\s*(\d+)m", s)
-    if m:
-        return int(m.group(1)) * 60 + int(m.group(2))
-    m = re.match(r"(\d+)m", s)
-    if m:
-        return int(m.group(1))
-    return None
-
-
-def _parse_range(s: str) -> tuple[Optional[float], Optional[float]]:
-    if not s:
-        return (None, None)
-    m = re.match(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)", s)
-    if not m:
-        return (None, None)
-    return (float(m.group(1)), float(m.group(2)))
-
-
-def _parse_markdown(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
-    sec_sleep = _section(text, "睡眠")
-    sec_stress = _section(text, "压力")
-    sec_hr = _section(text, "心率")
-    sec_bb = _section(text, "Body Battery")
-    sec_spo2 = _section(text, "血氧 (SpO2)")
-    sec_resp = _section(text, "呼吸")
-    sec_act = _section(text, "活动")
-    sec_hrv = _section(text, "HRV")
-
-    out = {
-        "date": path.stem,
-        "sleep_total_min": _parse_hm(_m1(r"- 总睡眠: ([^\n]+)", sec_sleep, str, "")),
-        "sleep_score": _m1(r"- 睡眠分数: ([^\n]+)", sec_sleep, float),
-        "avg_stress": _m1(r"- 平均压力: ([^\n]+)", sec_stress, float),
-        "max_stress": _m1(r"- 最高压力: ([^\n]+)", sec_stress, float),
-        "resting_hr": _m1(r"- 静息心率: ([^ ]+)", sec_hr, float),
-        "min_hr": _m1(r"- 最低: ([^ ]+) bpm", sec_hr, float),
-        "max_hr": _m1(r"最高: ([^ ]+) bpm", sec_hr, float),
-        "avg7_resting_hr": _m1(r"- 7天平均静息心率: ([^ ]+)", sec_hr, float),
-        "body_battery_highest": _m1(r"- 最高: ([^\n]+)", sec_bb, float),
-        "body_battery_lowest": _m1(r"- 最低: ([^\n]+)", sec_bb, float),
-        "body_battery_wake": _m1(r"- 起床时: ([^\n]+)", sec_bb, float),
-        "spo2_avg": _m1(r"- 平均: ([^%\n]+)%", sec_spo2, float),
-        "spo2_lowest": _m1(r"- 最低: ([^%\n]+)%", sec_spo2, float),
-        "spo2_latest": _m1(r"- 最新: ([^%\n]+)%", sec_spo2, float),
-        "resp_waking": _m1(r"- 清醒平均: ([^ ]+)", sec_resp, float),
-        "steps": _m1(r"- 步数: ([0-9,]+)", sec_act, lambda x: int(x.replace(",", ""))),
-        "distance_km": _m1(r"- 距离: ([^ ]+) km", sec_act, float),
-        "hrv_avg": _m1(r"- 昨晚平均: ([^ ]+)", sec_hrv, float),
-        "hrv_weekly": _m1(r"- 周平均: ([^ ]+)", sec_hrv, float),
-        "hrv_baseline_raw": _m1(r"- 基线: ([^ ]+)", sec_hrv, str),
-        "hrv_status": _m1(r"- 状态: ([^\n]+)", sec_hrv, str),
-    }
-    lo, hi = _parse_range(out.pop("hrv_baseline_raw", ""))
-    out["hrv_baseline_low"] = lo
-    out["hrv_baseline_high"] = hi
-    return out
 
 
 # ─── 格式化工具 ───────────────────────────────────────────────────
@@ -370,7 +273,7 @@ def avg_of(items: list[dict[str, Any]], key: str) -> Optional[float]:
 
 def _load_baselines(day_str: str, days: int = 90) -> dict[str, dict]:
     """加载最近N天的个人基线（mean ± std），用于日报评分个性化。"""
-    _DB_PATH = BASE_DIR / "health.db"
+    _DB_PATH = get_db_path()
     if not _DB_PATH.exists():
         return {}
     try:
@@ -416,7 +319,7 @@ def has_meaningful_data(data: dict[str, Any]) -> bool:
 
 def _load_vitals(day_str: str) -> Optional[dict]:
     """从 SQLite 加载某天的体征数据。"""
-    _DB_PATH = BASE_DIR / "health.db"
+    _DB_PATH = get_db_path()
     if not _DB_PATH.exists():
         return None
     try:

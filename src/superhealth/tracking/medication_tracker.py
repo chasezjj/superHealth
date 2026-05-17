@@ -19,9 +19,10 @@ from pathlib import Path
 from typing import Optional
 
 from superhealth import database as db
+from superhealth.config import get_db_path
 
 log = logging.getLogger(__name__)
-DB_PATH = Path(__file__).parent.parent.parent.parent / "health.db"
+DB_PATH = get_db_path()
 
 
 class MedicationTracker:
@@ -90,14 +91,6 @@ class MedicationTracker:
                 note=note,
             )
             log.info("关联用药(ID=%d)与观测记录(ID=%d)", medication_id, observation_id)
-
-    def link_to_lab_result(self, medication_id: int, lab_result_id: int, **kwargs):
-        """向后兼容别名 → link_to_observation。"""
-        self.link_to_observation(medication_id, lab_result_id, **kwargs)
-
-    def link_to_eye_exam(self, medication_id: int, eye_exam_id: int, **kwargs):
-        """向后兼容别名 → link_to_observation。"""
-        self.link_to_observation(medication_id, eye_exam_id, **kwargs)
 
     def analyze_medication_effect(
         self,

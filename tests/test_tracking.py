@@ -81,41 +81,6 @@ class TestLinkToObservation:
         assert rows[0]["expected_effect"] == "降低尿酸"
         assert rows[0]["is_effective"] == 1
 
-    def test_link_to_lab_result_compat(self, tmp_db):
-        """link_to_lab_result 向后兼容别名。"""
-        tracker = MedicationTracker(tmp_db)
-        with db.get_conn(tmp_db) as conn:
-            db.insert_medication(conn, name="test", condition="test", start_date="2025-01-01", dosage="1")
-            med_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            db.bulk_insert_observations(conn, [
-                {"obs_date": "2025-01-15", "category": "lab", "item_name": "尿酸", "value_num": 400}
-            ])
-            obs_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-        tracker.link_to_lab_result(med_id, obs_id, expected_effect="降低尿酸")
-
-        with db.get_conn(tmp_db) as conn:
-            rows = conn.execute("SELECT * FROM medication_effects WHERE medication_id = ?", (med_id,)).fetchall()
-        assert len(rows) == 1
-
-    def test_link_to_eye_exam_compat(self, tmp_db):
-        """link_to_eye_exam 向后兼容别名。"""
-        tracker = MedicationTracker(tmp_db)
-        with db.get_conn(tmp_db) as conn:
-            db.insert_medication(conn, name="test", condition="glaucoma", start_date="2025-01-01", dosage="1")
-            med_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            db.bulk_insert_observations(conn, [
-                {"obs_date": "2025-01-15", "category": "eye", "item_name": "右眼眼压", "value_num": 15}
-            ])
-            obs_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-        tracker.link_to_eye_exam(med_id, obs_id, expected_effect="控制眼压")
-
-        with db.get_conn(tmp_db) as conn:
-            rows = conn.execute("SELECT * FROM medication_effects WHERE medication_id = ?", (med_id,)).fetchall()
-        assert len(rows) == 1
-
-
 class TestAnalyzeMedicationEffect:
     def test_no_medication(self, tmp_db):
         tracker = MedicationTracker(tmp_db)

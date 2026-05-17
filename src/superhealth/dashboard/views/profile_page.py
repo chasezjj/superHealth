@@ -16,34 +16,11 @@ _GENDER_LABELS = {"male": "男", "female": "女"}
 _GENDER_VALUES = {"男": "male", "女": "female"}
 
 
-def _migrate_from_db() -> dict | None:
-    """如果 profile.md 不存在，尝试从旧 user_profile 表读取数据。"""
-    try:
-        from superhealth import database as db
-        from superhealth.collectors.fetch_garmin import BASE_DIR
-
-        db_path = BASE_DIR / "health.db"
-        with db.get_conn(db_path) as conn:
-            rows = conn.execute("SELECT key, value FROM user_profile").fetchall()
-            if rows:
-                return {row["key"]: row["value"] for row in rows}
-    except Exception:
-        pass
-    return None
-
-
 def render() -> None:
     st.title("个人档案")
     st.caption("设置基本健康档案，保存后用于风险预测、BMI 计算等功能。")
 
     existing = read_profile()
-
-    # 迁移提示：profile.md 不存在但旧表有数据
-    if not PROFILE_PATH.exists():
-        old_data = _migrate_from_db()
-        if old_data:
-            st.info("检测到旧档案数据，已从数据库预填，请确认后点击保存。")
-            existing = old_data
 
     # ── 表单 ──────────────────────────────────────────────────────────
     with st.form("profile_form"):
