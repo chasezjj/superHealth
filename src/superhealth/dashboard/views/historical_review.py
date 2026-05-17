@@ -16,7 +16,7 @@ from superhealth.dashboard.data_loader import (
 )
 from superhealth.database import DEFAULT_DB_PATH, get_conn, query_active_goals
 from superhealth.goals.manager import GoalManager
-from superhealth.goals.metrics import METRIC_REGISTRY
+from superhealth.goals.metrics import METRIC_REGISTRY, GoalMetricRegistry
 
 GOAL_PROGRESS_HELP = (
     "当前值：每日进度快照写入时按目标指标重新计算。"
@@ -65,6 +65,41 @@ def _goal_delta_color(direction: str) -> str:
     if direction == "increase":
         return "normal"
     return "off"
+
+
+def _has_value(value) -> bool:
+    """返回值是否可用于展示，兼容 None 与 pandas NaN。"""
+    return value is not None and not pd.isna(value)
+
+
+def _estimate_goal_progress_today(
+    goal: dict, ref_date: str | None = None, db_path=DEFAULT_DB_PATH
+) -> dict | None:
+    """无每日快照时，只读估算当天目标进度。
+
+    Dashboard 不在渲染阶段写 goal_progress，避免打开页面产生隐式数据库写入。
+    """
+    ref_date = ref_date or date.today().isoformat()
+    spec = METRIC_REGISTRY.get(goal.get("metric_key"))
+    if not spec or spec.frequency != "daily":
+        return None
+
+    registry = GoalMetricRegistry()
+    with get_conn(db_path) as conn:
+        current = registry.get_current_value(conn, goal["metric_key"], ref_date)
+
+    if current is None:
+        return None
+
+    baseline = goal.get("baseline_value")
+    target = goal.get("target_value")
+    progress_pct = registry.compute_progress(current, baseline, target, goal["direction"])
+    return {
+        "date": date.fromisoformat(ref_date),
+        "current_value": round(current, 2),
+        "progress_pct": round(progress_pct, 2) if progress_pct is not None else None,
+        "is_estimate": True,
+    }
 
 
 def render():
@@ -361,6 +396,9 @@ def _render_goal_progress():
     for goal in goals:
         gid = goal["id"]
         df = goal_progress.get(gid, pd.DataFrame())
+        latest_estimate = None
+        if df.empty:
+            latest_estimate = _estimate_goal_progress_today(goal)
 
         spec = METRIC_REGISTRY.get(goal["metric_key"])
         metric_label = spec.label if spec else goal["metric_key"]
@@ -373,22 +411,24 @@ def _render_goal_progress():
             )
             if goal.get("baseline_value") is not None and goal.get("target_value") is not None:
                 st.caption(f"基线 {goal['baseline_value']:.1f} → 目标 {goal['target_value']:.1f}")
+            if latest_estimate is not None:
+                st.caption("当前显示为即时估算；每日快照会在 pipeline 运行后写入。")
 
             # metric 卡片：最新值 + 相比基线变化 + 进度
             col1, col2, col3 = st.columns([3, 2, 2])
-            if not df.empty and len(df) >= 1:
-                latest = df.iloc[-1]
+            if not df.empty and len(df) >= 1 or latest_estimate is not None:
+                latest = latest_estimate or df.iloc[-1]
                 current = latest["current_value"]
                 baseline = goal.get("baseline_value")
                 pct = latest["progress_pct"]
 
                 with col1:
                     delta = None
-                    if baseline is not None and current is not None:
+                    if _has_value(baseline) and _has_value(current):
                         delta = round(current - baseline, 2)
                     st.metric(
                         label="当前值",
-                        value=f"{current:.1f}" if current is not None else "—",
+                        value=f"{current:.1f}" if _has_value(current) else "—",
                         delta=delta,
                         delta_color=_goal_delta_color(goal["direction"]),
                         help=GOAL_PROGRESS_HELP,
@@ -397,7 +437,7 @@ def _render_goal_progress():
                 with col2:
                     st.metric(
                         label="进度",
-                        value=f"{pct:.0f}%" if pct is not None else "—",
+                        value=f"{pct:.0f}%" if _has_value(pct) else "—",
                         help=(
                             "进度按当前值、基线、目标值和目标方向计算。"
                             "降低目标：当前值越接近或低于目标，进度越高；高于基线会显示方向走反。"
@@ -406,9 +446,9 @@ def _render_goal_progress():
                     )
 
                 with col3:
-                    if pct is not None and pct < 0:
+                    if _has_value(pct) and pct < 0:
                         st.error("方向走反")
-                    elif pct is not None:
+                    elif _has_value(pct):
                         st.progress(min(pct / 100.0, 1.0))
                     else:
                         st.caption("待评估")
@@ -449,6 +489,8 @@ def _render_goal_progress():
                 st.plotly_chart(fig, width="stretch")
             elif not df.empty:
                 st.caption("数据点不足，无法绘制趋势图。")
+            elif latest_estimate is not None:
+                st.caption("暂无历史快照，趋势图将在快照积累后显示。")
             else:
                 st.caption("暂无进度数据。")
 
