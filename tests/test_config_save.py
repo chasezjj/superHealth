@@ -25,7 +25,7 @@ class TestSaveGarmin:
 
     def test_save_garmin_preserves_other_sections(self, tmp_path):
         config_path = tmp_path / "config.toml"
-        config_path.write_text('[wechat]\naccount_id = "old-bot"\n')
+        config_path.write_text('[channel]\ntype = "wechat"\naccount_id = "old-bot"\n')
         cfg.save_garmin("new@example.com", "newpass", config_path=config_path)
         content = config_path.read_text()
         assert "old-bot" in content
@@ -65,7 +65,7 @@ class TestSaveConfig:
     def _make_full(self) -> cfg.AppConfig:
         return cfg.AppConfig(
             garmin=cfg.GarminConfig(email="g@test.com", password="gp"),
-            wechat=cfg.WechatConfig(account_id="aid", channel="ch", target="tgt"),
+            wechat=cfg.WechatConfig(account_id="aid", target="tgt"),
             vitals=cfg.VitalsConfig(api_token="tok", host="127.0.0.1", port=8080),
             claude=cfg.ClaudeConfig(
                 api_key="ck",
@@ -96,6 +96,7 @@ class TestSaveConfig:
             loaded = cfg.load(config_path)
         assert loaded.garmin.email == "g@test.com"
         assert loaded.wechat.account_id == "aid"
+        assert loaded.wechat.push_channel == "wechat"
         assert loaded.vitals.port == 8080
         assert loaded.claude.max_tokens == 512
         assert loaded.claude.document_timeout_seconds == 600
@@ -183,6 +184,14 @@ class TestSaveConfig:
         assert "new" in content
         assert "newpw" in content
 
+    def test_save_config_does_not_write_redundant_channel_field(self, tmp_path):
+        config_path = tmp_path / "config.toml"
+        app_cfg = self._make_full()
+        cfg.save_config(app_cfg, config_path=config_path)
+
+        content = config_path.read_text()
+        assert '\nchannel = ' not in content
+
     def test_save_config_missing_tomli_w(self, tmp_path):
         config_path = tmp_path / "config.toml"
         with patch.dict("sys.modules", {"tomli_w": None}):
@@ -196,7 +205,7 @@ class TestSaveConfig:
         content = config_path.read_text()
         for section in [
             "[garmin]",
-            "[wechat]",
+            "[channel]",
             "[vitals]",
             "[claude]",
             "[baichuan]",
@@ -228,7 +237,7 @@ class TestSaveDashboardSessionToken:
         config_path = tmp_path / "config.toml"
         config_path.write_text(
             '[garmin]\nemail = "u@x.com"\npassword = "pw"\n'
-            '[wechat]\naccount_id = "abc"\n'
+            '[channel]\ntype = "wechat"\naccount_id = "abc"\n'
         )
         cfg.save_dashboard_session_token("tok", config_path=config_path)
         loaded = cfg.load(config_path)

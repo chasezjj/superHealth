@@ -62,9 +62,15 @@ def _save_current_form_config(base_config: AppConfig) -> AppConfig:
             password=cast(str, state.get("cfg_garmin_pwd", base_config.garmin.password)),
         ),
         wechat=WechatConfig(
+            type=cast(str, state.get("cfg_push_type", base_config.wechat.type)),
             account_id=cast(str, state.get("cfg_wx_acc", base_config.wechat.account_id)),
-            channel=cast(str, state.get("cfg_wx_ch", base_config.wechat.channel)),
+            channel="wecom"
+            if cast(str, state.get("cfg_push_type", base_config.wechat.type)) == "wecom"
+            else "wechat",
             target=cast(str, state.get("cfg_wx_tgt", base_config.wechat.target)),
+            bot_id=cast(str, state.get("cfg_wecom_bot_id", base_config.wechat.bot_id)),
+            secret=cast(str, state.get("cfg_wecom_secret", base_config.wechat.secret)),
+            touser=cast(str, state.get("cfg_wecom_touser", base_config.wechat.touser)),
         ),
         vitals=VitalsConfig(
             api_token=cast(str, state.get("cfg_vitals_token", base_config.vitals.api_token)),
@@ -107,6 +113,18 @@ def _save_current_form_config(base_config: AppConfig) -> AppConfig:
     )
     save_config(new_config)
     return new_config
+
+
+def _save_current_vitals_config(base_config: AppConfig) -> AppConfig:
+    """只保存 Health Auto Export 接收服务需要的配置。"""
+    state = st.session_state
+    base_config.vitals = VitalsConfig(
+        api_token=cast(str, state.get("cfg_vitals_token", base_config.vitals.api_token)),
+        host=cast(str, state.get("cfg_vitals_host", base_config.vitals.host)),
+        port=int(state.get("cfg_vitals_port", base_config.vitals.port)),
+    )
+    save_config(base_config)
+    return base_config
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +269,8 @@ _VITALS_START_HEALTH_ATTEMPTS = 60
 _VITALS_START_HEALTH_DELAY_SECONDS = 0.5
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _SERVICE_MANAGER_SCRIPT = _REPO_ROOT / "scripts" / "manage_service.sh"
+_VITALS_PENDING_ACTION_KEY = "_vitals_pending_action"
+_VITALS_ACTION_RESULT_KEY = "_vitals_action_result"
 
 
 def _local_ip() -> str:
@@ -310,7 +330,9 @@ def _vitals_pid() -> int | None:
 
 
 def _is_vitals_healthy(host: str, port: int, timeout: float = 1.0) -> bool:
-    health_host = "127.0.0.1" if host == "0.0.0.0" else host
+    health_host = host.strip() or "127.0.0.1"
+    if health_host in {"0.0.0.0", "::", "[::]"}:
+        health_host = "127.0.0.1"
     try:
         with urllib.request.urlopen(
             f"http://{health_host}:{port}/health",
@@ -443,13 +465,17 @@ def _start_vitals_receiver() -> tuple[bool, str]:
             return False, f"启动失败: {msg}"
 
         for _ in range(_VITALS_START_HEALTH_ATTEMPTS):
+            pid = _pid_listening_on_port(cfg.vitals.port)
             if _is_vitals_healthy(cfg.vitals.host, cfg.vitals.port):
-                pid = _pid_listening_on_port(cfg.vitals.port)
                 if pid is not None:
                     _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
                     _VITALS_PID_FILE.write_text(str(pid))
                     return True, f"服务已由系统托管启动（PID {pid}）"
                 return True, "服务已由系统托管启动"
+            if pid is not None:
+                _VITALS_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+                _VITALS_PID_FILE.write_text(str(pid))
+                return True, f"服务已启动并监听端口 {cfg.vitals.port}（PID {pid}）"
             time.sleep(_VITALS_START_HEALTH_DELAY_SECONDS)
 
         log_file = _VITALS_MANAGED_ERR_LOG_FILE
@@ -479,6 +505,21 @@ def _stop_vitals_receiver() -> tuple[bool, str]:
         return True, msg
     except Exception as e:
         return False, f"停止失败: {e}"
+
+
+def _set_vitals_action_result(ok: bool, msg: str) -> None:
+    st.session_state[_VITALS_ACTION_RESULT_KEY] = {"ok": ok, "msg": msg}
+
+
+def _show_vitals_action_result() -> None:
+    result = st.session_state.pop(_VITALS_ACTION_RESULT_KEY, None)
+    if not isinstance(result, dict):
+        return
+    msg = str(result.get("msg", ""))
+    if result.get("ok"):
+        st.success(msg)
+    else:
+        st.error(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -631,34 +672,61 @@ def render() -> None:
                             for _d, _err in fetch_errors:
                                 st.text(f"{_d}: {_err}")
 
-    # WeChat
-    with st.expander("微信推送"):
+    # Message push
+    with st.expander("消息推送"):
         st.caption(
-            "依赖部署机器上安装的 [OpenClaw](https://openclaw.io)，通过 `openclaw-weixin` 渠道将高级健康日报推送到微信。"
-            "配置方式：登录 OpenClaw 控制台 → 我的账号，获取 Account ID；"
-            "渠道固定填 `openclaw-weixin`；"
-            "Target 填接收消息的微信用户 open_id（在 OpenClaw 控制台 → 渠道 → 微信 → 用户列表中查看）。"
+            "配置高级健康日报和提醒消息的推送渠道。普通微信使用 OpenClaw 账号/渠道/目标；"
+            "企业微信使用 QClaw 企业微信 Bot ID、Secret 和接收人 user id。"
         )
-        c1, c2, c3 = st.columns(3)
-        wechat_account = c1.text_input(
-            "Account ID",
-            value=config.wechat.account_id,
-            key="cfg_wx_acc",
-            help="OpenClaw 控制台 → 我的账号 → Account ID",
+        push_type = st.radio(
+            "渠道类型",
+            options=["wechat", "wecom"],
+            format_func=lambda value: "微信" if value == "wechat" else "企业微信",
+            index=1 if config.wechat.type == "wecom" else 0,
+            horizontal=True,
+            key="cfg_push_type",
         )
-        wechat_channel = c2.text_input(
-            "Channel",
-            value=config.wechat.channel,
-            key="cfg_wx_ch",
-            placeholder="openclaw-weixin",
-            help="固定填 openclaw-weixin",
-        )
-        wechat_target = c3.text_input(
-            "Target",
-            value=config.wechat.target,
-            key="cfg_wx_tgt",
-            help="接收消息的微信用户 open_id，在 OpenClaw 控制台 → 渠道 → 微信 → 用户列表中查看",
-        )
+        wechat_account = config.wechat.account_id
+        wechat_target = config.wechat.target
+        wecom_bot_id = config.wechat.bot_id
+        wecom_secret = config.wechat.secret
+        wecom_touser = config.wechat.touser
+
+        if push_type == "wechat":
+            c1, c2 = st.columns(2)
+            wechat_account = c1.text_input(
+                "Account ID",
+                value=config.wechat.account_id,
+                key="cfg_wx_acc",
+                help="OpenClaw 控制台 → 我的账号 → Account ID",
+            )
+            wechat_target = c2.text_input(
+                "Target",
+                value=config.wechat.target,
+                key="cfg_wx_tgt",
+                help="接收消息的微信用户 open_id 或渠道目标标识",
+            )
+        else:
+            c1, c2, c3 = st.columns(3)
+            wecom_bot_id = c1.text_input(
+                "Bot ID",
+                value=config.wechat.bot_id,
+                key="cfg_wecom_bot_id",
+                help="企业微信智能机器人 Bot ID",
+            )
+            wecom_secret = c2.text_input(
+                "Secret",
+                value=config.wechat.secret,
+                key="cfg_wecom_secret",
+                type="password",
+                help="企业微信智能机器人 Secret",
+            )
+            wecom_touser = c3.text_input(
+                "接收人",
+                value=config.wechat.touser,
+                key="cfg_wecom_touser",
+                help="企业微信接收人 userid",
+            )
 
     # Vitals
     with st.expander("Health Auto Export"):
@@ -714,28 +782,45 @@ def render() -> None:
         st.caption("接收服务日志")
         st.code(str(_VITALS_MANAGED_OUT_LOG_FILE), language="text")
         st.code(str(_VITALS_MANAGED_ERR_LOG_FILE), language="text")
-        st.caption("修改 API Token / Host / Port 后，请先点击页面底部的\"保存配置\"，再启动接收服务。")
 
         st.divider()
+        pending_vitals_action = st.session_state.get(_VITALS_PENDING_ACTION_KEY)
+        vitals_action_busy = pending_vitals_action in {"start", "stop"}
+        _show_vitals_action_result()
+
         pid = _vitals_pid()
         if pid:
             st.success(f"vitals_receiver 服务运行中（PID {pid}）")
-            if st.button("停止接收服务", key="btn_stop_vitals"):
-                ok, msg = _stop_vitals_receiver()
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+            if st.button(
+                "停止接收服务",
+                key="btn_stop_vitals",
+                disabled=vitals_action_busy,
+            ):
+                st.session_state[_VITALS_PENDING_ACTION_KEY] = "stop"
                 st.rerun()
         else:
             st.warning("vitals_receiver 服务未运行，手机数据无法上传")
-            if st.button("启动接收服务", key="btn_start_vitals"):
-                ok, msg = _start_vitals_receiver()
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
+            if st.button(
+                "启动接收服务",
+                key="btn_start_vitals",
+                disabled=vitals_action_busy,
+            ):
+                st.session_state[_VITALS_PENDING_ACTION_KEY] = "start"
                 st.rerun()
+
+        if pending_vitals_action == "start":
+            with st.spinner("正在启动接收服务并等待健康检查..."):
+                _save_current_vitals_config(config)
+                ok, msg = _start_vitals_receiver()
+            _set_vitals_action_result(ok, msg)
+            st.session_state.pop(_VITALS_PENDING_ACTION_KEY, None)
+            st.rerun()
+        elif pending_vitals_action == "stop":
+            with st.spinner("正在停止接收服务..."):
+                ok, msg = _stop_vitals_receiver()
+            _set_vitals_action_result(ok, msg)
+            st.session_state.pop(_VITALS_PENDING_ACTION_KEY, None)
+            st.rerun()
 
     # Claude
     with st.expander("AI 建议引擎（Anthropic 协议）"):
@@ -998,7 +1083,7 @@ def render() -> None:
 1. **Garmin 数据同步** — 拉取昨日与今日的运动、睡眠、心率、压力等数据，失败时自动重试；同时补拉历史上未成功同步的日期
 2. **日历数据同步** — 拉取 Outlook / Exchange 日程，用于分析忙碌程度对恢复的影响
 3. **生成高级健康日报** — 基于多维度健康数据，由 AI 模型（Claude / 百川）生成个性化分析与运动建议
-4. **推送微信通知** — 将日报通过 OpenClaw 发送到微信，方便随时查阅
+4. **推送消息通知** — 将日报通过 OpenClaw/QClaw 发送到配置的消息渠道，方便随时查阅
 5. **自动反馈与效果追踪** — 对比历史建议与实际运动数据，评估执行效果，为策略学习提供依据
 6. **策略学习** — 根据长期效果数据调整建议策略参数，使建议越来越贴合个人状态
 7. **预约提醒** — 检查即将到来的就医、检查等日程，提前发送提醒通知
@@ -1084,9 +1169,13 @@ def render() -> None:
         new_config = AppConfig(
             garmin=GarminConfig(email=garmin_email, password=garmin_password),
             wechat=WechatConfig(
+                type=push_type,
                 account_id=wechat_account,
-                channel=wechat_channel,
+                channel="wecom" if push_type == "wecom" else "wechat",
                 target=wechat_target,
+                bot_id=wecom_bot_id,
+                secret=wecom_secret,
+                touser=wecom_touser,
             ),
             vitals=VitalsConfig(
                 api_token=vitals_token,

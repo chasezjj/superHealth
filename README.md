@@ -197,7 +197,7 @@ chmod 600 ~/.superhealth/config.toml
 - `[baichuan]` + `[advisor]`：百川医疗模型和模型选择模式。
 - `[weather]`：和风天气。
 - `[outlook]`：Exchange/Outlook 日历。
-- `[wechat]`：OpenClaw 微信推送，字段为 `account_id`、`channel`、`target`。
+- `[channel]`：OpenClaw/QClaw 消息推送，`type = "wechat"` 时使用 `account_id`、`target`；`type = "wecom"` 时使用 `bot_id`、`secret`、`touser`。
 - `[dashboard]`：仪表盘访问密码。
 
 ### 初始化数据库

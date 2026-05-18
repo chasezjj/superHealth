@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""发送综合健康日报到微信。
+"""发送综合健康日报到消息渠道。
 
 整合 Garmin 数据、体征数据和高级分析，生成并发送个性化健康建议。
 """
@@ -7,11 +7,11 @@
 import argparse
 import logging
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 from superhealth import config as cfg
+from superhealth.notifications import send_push_message
 
 log = logging.getLogger(__name__)
 
@@ -31,62 +31,42 @@ def send_report(day_str: str) -> int:
     conf = cfg.load()
     if not conf.wechat.is_complete():
         print(
-            "错误：微信配置不完整。请创建 ~/.superhealth/config.toml 或设置环境变量\n"
-            "  HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET\n"
-            "  （或 SUPERHEALTH_WECHAT_ACCOUNT_ID / SUPERHEALTH_WECHAT_CHANNEL / SUPERHEALTH_WECHAT_TARGET）",
+            "错误：消息推送配置不完整。请创建 ~/.superhealth/config.toml 或设置环境变量\n"
+            "  HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_TARGET\n"
+            "  或企业微信字段：SUPERHEALTH_WECOM_BOT_ID / SUPERHEALTH_WECOM_SECRET / SUPERHEALTH_WECOM_TOUSER",
             file=sys.stderr,
         )
         return 1
 
-    ACCOUNT_ID = conf.wechat.account_id
-    CHANNEL = conf.wechat.channel
-    TARGET = conf.wechat.target
-
     # 优先读取 Phase 4 高级日报（含 LLM 建议和多模型评估）
     advanced_path = REPORTS_DIR / f"{day_str}-advanced-daily-report.md"
     if advanced_path.exists():
-        return send_advanced_report(advanced_path, day_str, CHANNEL, TARGET, ACCOUNT_ID)
+        return send_advanced_report(advanced_path, day_str, conf.wechat)
 
     # 降级到基础综合日报
     report_path = REPORTS_DIR / f"{day_str}-daily-report.md"
     if report_path.exists():
-        return send_comprehensive_report(report_path, day_str, CHANNEL, TARGET, ACCOUNT_ID)
+        return send_comprehensive_report(report_path, day_str, conf.wechat)
 
     print(f"报告文件不存在: {advanced_path} 或 {report_path}", file=sys.stderr)
     return 1
 
 
-def send_advanced_report(
-    path: Path, day_str: str, channel: str, target: str, account_id: str
-) -> int:
+def send_advanced_report(path: Path, day_str: str, push_config) -> int:
     """发送 Phase 4 高级健康日报（含 LLM 建议和多模型评估）。"""
     text = path.read_text(encoding="utf-8")
 
-    # 用 openclaw message send 直接发送，绕过 agent 记忆系统
-    cmd = [
-        "openclaw",
-        "message",
-        "send",
-        "--channel",
-        channel,
-        "-t",
-        target,
-        "--account",
-        account_id,
-        "--message",
-        text,
-    ]
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    return proc.returncode
+    return send_push_message(
+        channel=push_config.push_channel,
+        target=push_config.push_target,
+        account_id=push_config.account_id,
+        wecom_bot_id=push_config.bot_id,
+        wecom_secret=push_config.secret,
+        message=text,
+    )
 
 
-def send_comprehensive_report(
-    path: Path, day_str: str, channel: str, target: str, account_id: str
-) -> int:
+def send_comprehensive_report(path: Path, day_str: str, push_config) -> int:
     """发送新的综合健康日报。"""
     text = path.read_text(encoding="utf-8")
 
@@ -155,25 +135,14 @@ def send_comprehensive_report(
 
     message = "\n".join(lines)
 
-    cmd = [
-        "openclaw",
-        "message",
-        "send",
-        "--channel",
-        channel,
-        "-t",
-        target,
-        "--account",
-        account_id,
-        "--message",
-        message,
-    ]
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    return proc.returncode
+    return send_push_message(
+        channel=push_config.push_channel,
+        target=push_config.push_target,
+        account_id=push_config.account_id,
+        wecom_bot_id=push_config.bot_id,
+        wecom_secret=push_config.secret,
+        message=message,
+    )
 
 
 def main() -> int:

@@ -10,10 +10,13 @@
     email    = "your_email_or_phone"
     password = "your_password"
 
-    [wechat]
-    account_id = "your-bot-account-id"
-    channel    = "your-channel"
+    [channel]
+    type       = "wechat"  # wechat 或 wecom
+    account_id = "your-openclaw-account-id"
     target     = "your-wechat-openid"
+    bot_id     = ""
+    secret     = ""
+    touser     = ""
 
     [vitals]
     api_token = "your-secret-token"   # Health Auto Export 鉴权 token
@@ -22,7 +25,7 @@
 
 环境变量 fallback（仅在 toml 字段为空时生效）：
     HEALTHY_GARMIN_EMAIL / HEALTHY_GARMIN_PASSWORD
-    HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_CHANNEL / HEALTHY_WECHAT_TARGET
+    HEALTHY_WECHAT_ACCOUNT_ID / HEALTHY_WECHAT_TARGET
     HEALTHY_VITALS_API_TOKEN / HEALTHY_VITALS_HOST / HEALTHY_VITALS_PORT
     SUPERHEALTH_DB                       # 数据库路径覆盖
 
@@ -90,12 +93,26 @@ class GarminConfig:
 
 @dataclass
 class WechatConfig:
+    type: str = "wechat"
     account_id: str = ""
-    channel: str = ""
+    channel: str = "wechat"
     target: str = ""
+    bot_id: str = ""
+    secret: str = ""
+    touser: str = ""
 
     def is_complete(self) -> bool:
-        return bool(self.account_id and self.channel and self.target)
+        if self.type == "wecom":
+            return bool(self.bot_id and self.secret and self.touser)
+        return bool(self.account_id and self.target)
+
+    @property
+    def push_channel(self) -> str:
+        return "wecom" if self.type == "wecom" else (self.channel or "wechat")
+
+    @property
+    def push_target(self) -> str:
+        return self.touser if self.type == "wecom" else self.target
 
 
 @dataclass
@@ -198,12 +215,33 @@ def load(config_path: Path = CONFIG_PATH) -> AppConfig:
         password=garmin_raw.get("password", "") or os.environ.get("HEALTHY_GARMIN_PASSWORD", ""),
     )
 
-    wechat_raw = raw.get("wechat", {})
+    channel_raw = raw.get("channel", {})
+    channel_type = channel_raw.get("type", "") or "wechat"
+    channel_value = "wecom" if channel_type == "wecom" else "wechat"
+    bot_id_value = (
+        channel_raw.get("bot_id", "")
+        or os.environ.get("SUPERHEALTH_WECOM_BOT_ID", "")
+        or os.environ.get("WECOM_BOT_ID", "")
+    )
+    secret_value = (
+        channel_raw.get("secret", "")
+        or os.environ.get("SUPERHEALTH_WECOM_SECRET", "")
+        or os.environ.get("WECOM_BOT_SECRET", "")
+    )
+    touser_value = (
+        channel_raw.get("touser", "")
+        or os.environ.get("SUPERHEALTH_WECOM_TOUSER", "")
+        or os.environ.get("WECOM_TOUSER", "")
+    )
     wechat = WechatConfig(
-        account_id=wechat_raw.get("account_id", "")
+        type=channel_type,
+        account_id=channel_raw.get("account_id", "")
         or os.environ.get("HEALTHY_WECHAT_ACCOUNT_ID", ""),
-        channel=wechat_raw.get("channel", "") or os.environ.get("HEALTHY_WECHAT_CHANNEL", ""),
-        target=wechat_raw.get("target", "") or os.environ.get("HEALTHY_WECHAT_TARGET", ""),
+        channel=channel_value,
+        target=channel_raw.get("target", "") or os.environ.get("HEALTHY_WECHAT_TARGET", ""),
+        bot_id=bot_id_value,
+        secret=secret_value,
+        touser=touser_value,
     )
 
     vitals_raw = raw.get("vitals", {})
@@ -381,10 +419,14 @@ def save_config(config: AppConfig, config_path: Path = CONFIG_PATH) -> None:
         "email": config.garmin.email,
         "password": config.garmin.password,
     }
-    raw["wechat"] = {
+    raw.pop("wechat", None)
+    raw["channel"] = {
+        "type": config.wechat.type,
         "account_id": config.wechat.account_id,
-        "channel": config.wechat.channel,
         "target": config.wechat.target,
+        "bot_id": config.wechat.bot_id,
+        "secret": config.wechat.secret,
+        "touser": config.wechat.touser,
     }
     raw["vitals"] = {
         "api_token": config.vitals.api_token,

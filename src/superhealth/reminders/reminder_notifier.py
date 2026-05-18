@@ -1,6 +1,6 @@
 """就医提醒通知器（Phase 6）
 
-每日 morning 运行时检查 appointments 表，对距今 14 天和 7 天的预约发送微信通知。
+每日 morning 运行时检查 appointments 表，对距今 14 天和 7 天的预约发送消息通知。
 同时提供日报板块生成函数，供 advanced_daily_report.py 调用。
 
 使用方式：
@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from datetime import date
 
@@ -22,6 +21,7 @@ from superhealth.database import (
     get_pending_appointments,
     mark_appointment_reminded,
 )
+from superhealth.notifications import send_push_message
 
 REMIND_THRESHOLDS = [14, 7]  # 提前提醒天数
 
@@ -47,35 +47,18 @@ def _build_wechat_message(appt: dict, days_left: int) -> str:
 
 
 def _send_wechat(message: str, conf) -> int:
-    cmd = [
-        "openclaw",
-        "agent",
-        "--channel",
-        conf.wechat.channel,
-        "--to",
-        conf.wechat.target,
-        "--message",
-        message,
-        "--deliver",
-        "--reply-channel",
-        conf.wechat.channel,
-        "--reply-account",
-        conf.wechat.account_id,
-        "--reply-to",
-        conf.wechat.target,
-        "--timeout",
-        "60",
-    ]
-    proc = subprocess.run(cmd, text=True, capture_output=True)
-    if proc.stdout:
-        print(proc.stdout, end="")
-    if proc.stderr:
-        print(proc.stderr, end="", file=sys.stderr)
-    return proc.returncode
+    return send_push_message(
+        channel=conf.wechat.push_channel,
+        target=conf.wechat.push_target,
+        account_id=conf.wechat.account_id,
+        wecom_bot_id=conf.wechat.bot_id,
+        wecom_secret=conf.wechat.secret,
+        message=message,
+    )
 
 
 def check_and_notify(dry_run: bool = False) -> int:
-    """检查所有待提醒的预约，对符合阈值的发送微信通知。
+    """检查所有待提醒的预约，对符合阈值的发送消息通知。
 
     返回发送成功的提醒数量。
     """
@@ -85,7 +68,7 @@ def check_and_notify(dry_run: bool = False) -> int:
     conf = cfg.load()
     wechat_ok = conf.wechat.is_complete()
     if not wechat_ok and not dry_run:
-        print("[notifier] 微信配置不完整，跳过发送", file=sys.stderr)
+        print("[notifier] 消息推送配置不完整，跳过发送", file=sys.stderr)
         return 0
 
     with get_conn() as conn:
@@ -183,7 +166,7 @@ def build_report_section() -> str:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="检查并发送就医提醒微信通知")
+    parser = argparse.ArgumentParser(description="检查并发送就医提醒消息通知")
     parser.add_argument("--dry-run", action="store_true", help="只打印，不实际发送")
     args = parser.parse_args()
     count = check_and_notify(dry_run=args.dry_run)

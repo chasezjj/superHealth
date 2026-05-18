@@ -72,6 +72,44 @@ class TestUpsertDailyHealth:
             row = conn.execute("SELECT sleep_score FROM daily_health WHERE date = ?", ("2025-04-01",)).fetchone()
         assert row["sleep_score"] == 90
 
+    def test_null_update_preserves_existing_metrics(self, tmp_db):
+        complete = DailyHealth(
+            date="2025-04-01",
+            sleep=SleepData(total_seconds=28800, score=85),
+            stress=StressData(average=25),
+            heart_rate=HeartRateData(resting=55),
+            body_battery=BodyBatteryData(at_wake=75),
+            activity=ActivityData(steps=8000),
+            hrv=HRVData(last_night_avg=40),
+        )
+        partial = DailyHealth(
+            date="2025-04-01",
+            sleep=SleepData(total_seconds=30000, score=90),
+        )
+        with db.get_conn(tmp_db) as conn:
+            db.upsert_daily_health(conn, complete)
+            db.upsert_daily_health(conn, partial)
+            row = conn.execute(
+                """SELECT sleep_score, sleep_total_seconds, stress_average,
+                          hr_resting, bb_at_wake, steps, hrv_last_night_avg
+                   FROM daily_health WHERE date = ?""",
+                ("2025-04-01",),
+            ).fetchone()
+            null_audits = conn.execute(
+                """SELECT * FROM daily_health_audit
+                   WHERE date = ? AND new_value IS NULL""",
+                ("2025-04-01",),
+            ).fetchall()
+
+        assert row["sleep_score"] == 90
+        assert row["sleep_total_seconds"] == 30000
+        assert row["stress_average"] == 25
+        assert row["hr_resting"] == 55
+        assert row["bb_at_wake"] == 75
+        assert row["steps"] == 8000
+        assert row["hrv_last_night_avg"] == 40
+        assert null_audits == []
+
     def test_audit_on_change(self, tmp_db):
         dh1 = DailyHealth(date="2025-04-01", sleep=SleepData(score=80), heart_rate=HeartRateData(resting=55))
         dh2 = DailyHealth(date="2025-04-01", sleep=SleepData(score=85), heart_rate=HeartRateData(resting=55))

@@ -10,38 +10,52 @@ from superhealth import config as cfg
 
 
 class TestLoadConfig:
-    def test_load_from_toml(self, tmp_path):
+    def test_load_channel_section_from_toml(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
-            '[wechat]\naccount_id = "test-bot"\nchannel = "test-ch"\ntarget = "test-target"\n'
+            '[channel]\ntype = "wechat"\naccount_id = "test-bot"\ntarget = "openid"\n'
         )
         conf = cfg.load(toml_file)
+        assert conf.wechat.type == "wechat"
         assert conf.wechat.account_id == "test-bot"
-        assert conf.wechat.channel == "test-ch"
-        assert conf.wechat.target == "test-target"
+        assert conf.wechat.channel == "wechat"
+        assert conf.wechat.push_channel == "wechat"
+        assert conf.wechat.target == "openid"
+
+    def test_load_wecom_channel_section_from_toml(self, tmp_path):
+        toml_file = tmp_path / "config.toml"
+        toml_file.write_text(
+            '[channel]\ntype = "wecom"\nbot_id = "bot"\nsecret = "sec"\ntouser = "user-id"\n'
+        )
+        conf = cfg.load(toml_file)
+        assert conf.wechat.type == "wecom"
+        assert conf.wechat.push_channel == "wecom"
+        assert conf.wechat.push_target == "user-id"
+        assert conf.wechat.bot_id == "bot"
+        assert conf.wechat.secret == "sec"
+        assert conf.wechat.is_complete() is True
 
     def test_toml_takes_priority_over_env(self, tmp_path):
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
-            '[wechat]\naccount_id = "from-file"\nchannel = "from-file"\ntarget = "from-file"\n'
+            '[channel]\ntype = "wechat"\naccount_id = "from-file"\ntarget = "from-file"\n'
         )
         env = {
             "HEALTHY_WECHAT_ACCOUNT_ID": "from-env",
-            "HEALTHY_WECHAT_CHANNEL": "from-env-ch",
             "HEALTHY_WECHAT_TARGET": "from-env-target",
         }
         with patch.dict(os.environ, env):
             conf = cfg.load(toml_file)
         # toml 中显式填写的值应胜过环境变量
         assert conf.wechat.account_id == "from-file"
-        assert conf.wechat.channel == "from-file"
+        assert conf.wechat.channel == "wechat"
         assert conf.wechat.target == "from-file"
 
     def test_env_used_as_fallback_when_toml_empty(self, tmp_path):
         """toml 字段为空字符串时，env 作为 fallback 生效。"""
         toml_file = tmp_path / "config.toml"
         toml_file.write_text(
-            '[wechat]\naccount_id = ""\nchannel = "from-file"\ntarget = ""\n'
+            '[channel]\ntype = "wechat"\naccount_id = ""\ntarget = ""\n'
         )
         with patch.dict(
             os.environ,
@@ -54,24 +68,24 @@ class TestLoadConfig:
         # 空字符串视作"未设置"，使用 env
         assert conf.wechat.account_id == "from-env"
         assert conf.wechat.target == "from-env-target"
-        # toml 显式填写的值仍优先
-        assert conf.wechat.channel == "from-file"
+        assert conf.wechat.channel == "wechat"
 
     def test_missing_config_file_returns_defaults(self, tmp_path):
         conf = cfg.load(tmp_path / "nonexistent.toml")
         assert conf.wechat.account_id == ""
-        assert conf.wechat.channel == ""
+        assert conf.wechat.channel == "wechat"
         assert conf.wechat.target == ""
 
     def test_env_vars_work_without_file(self, tmp_path):
         env = {
             "HEALTHY_WECHAT_ACCOUNT_ID": "env-only",
-            "HEALTHY_WECHAT_CHANNEL": "env-ch",
             "HEALTHY_WECHAT_TARGET": "env-target",
         }
         with patch.dict(os.environ, env):
             conf = cfg.load(tmp_path / "nonexistent.toml")
         assert conf.wechat.account_id == "env-only"
+        assert conf.wechat.channel == "wechat"
+        assert conf.wechat.target == "env-target"
 
     def test_load_garmin_from_toml(self, tmp_path):
         toml_file = tmp_path / "config.toml"
@@ -385,15 +399,25 @@ class TestIsCompleteMethods:
 
 class TestWechatConfigIsComplete:
     def test_complete(self):
-        w = cfg.WechatConfig(account_id="a", channel="b", target="c")
+        w = cfg.WechatConfig(account_id="a", target="c")
         assert w.is_complete() is True
 
     def test_missing_one_field(self):
-        w = cfg.WechatConfig(account_id="a", channel="b", target="")
+        w = cfg.WechatConfig(account_id="a", target="")
         assert w.is_complete() is False
 
     def test_all_empty(self):
         w = cfg.WechatConfig()
+        assert w.is_complete() is False
+
+    def test_wecom_complete(self):
+        w = cfg.WechatConfig(type="wecom", bot_id="bot", secret="sec", touser="u")
+        assert w.is_complete() is True
+        assert w.push_channel == "wecom"
+        assert w.push_target == "u"
+
+    def test_wecom_missing_secret(self):
+        w = cfg.WechatConfig(type="wecom", bot_id="bot", secret="", touser="u")
         assert w.is_complete() is False
 
 

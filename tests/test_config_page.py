@@ -80,6 +80,33 @@ class TestHealthAutoExportUrlHelpers:
             assert page._local_ip() == "10.0.0.8"
 
 
+class TestSaveCurrentVitalsConfig:
+    def test_saves_only_vitals_fields(self, monkeypatch):
+        base = cfg.AppConfig()
+        base.garmin.email = "keep@example.com"
+        base.vitals.api_token = "old-token"
+        base.vitals.host = "127.0.0.1"
+        base.vitals.port = 8506
+
+        state = {
+            "cfg_vitals_token": "new-token",
+            "cfg_vitals_host": "0.0.0.0",
+            "cfg_vitals_port": 8510,
+            "cfg_garmin_email": "do-not-save@example.com",
+        }
+        monkeypatch.setattr(page.st, "session_state", state)
+        save_config = MagicMock()
+        monkeypatch.setattr(page, "save_config", save_config)
+
+        result = page._save_current_vitals_config(base)
+
+        assert result.vitals.api_token == "new-token"
+        assert result.vitals.host == "0.0.0.0"
+        assert result.vitals.port == 8510
+        assert result.garmin.email == "keep@example.com"
+        save_config.assert_called_once_with(result)
+
+
 # ---------------------------------------------------------------------------
 # _is_healthy_job
 # ---------------------------------------------------------------------------
@@ -588,6 +615,8 @@ def isolated_pid_file(tmp_path, monkeypatch):
     """将 _VITALS_PID_FILE 指向 tmp 目录，避免测试影响真实环境。"""
     fake = tmp_path / "vitals_receiver.pid"
     monkeypatch.setattr(page, "_VITALS_PID_FILE", fake)
+    monkeypatch.setattr(page, "_pid_listening_on_port", MagicMock(return_value=None))
+    monkeypatch.setattr(page, "_is_vitals_healthy", MagicMock(return_value=False))
     return fake
 
 
@@ -664,6 +693,21 @@ class TestStartVitalsReceiver:
         assert isolated_pid_file.read_text() == "7890"
         mock_svc.assert_called_once_with("vitals_receiver")
 
+    def test_treats_listening_port_as_started_when_health_check_lags(
+        self, isolated_pid_file, isolated_vitals_log_file
+    ):
+        with (
+            patch.object(page, "_vitals_pid", return_value=None),
+            patch.object(page, "_start_managed_service", return_value=(True, "started")),
+            patch.object(page, "_is_vitals_healthy", return_value=False),
+            patch.object(page, "_pid_listening_on_port", return_value=7890),
+            patch.object(page.time, "sleep"),
+        ):
+            ok, msg = page._start_vitals_receiver()
+        assert ok is True
+        assert "监听端口" in msg
+        assert isolated_pid_file.read_text() == "7890"
+
     def test_returns_failure_with_log_tail_when_health_check_fails(
         self, isolated_pid_file, isolated_vitals_log_file
     ):
@@ -735,3 +779,35 @@ class TestStopVitalsReceiver:
             ok, msg = page._stop_vitals_receiver()
         assert ok is False
         assert "denied" in msg
+
+
+class TestVitalsActionResult:
+    def test_set_and_show_success_result(self, monkeypatch):
+        state = {}
+        monkeypatch.setattr(page.st, "session_state", state)
+        success = MagicMock()
+        error = MagicMock()
+        monkeypatch.setattr(page.st, "success", success)
+        monkeypatch.setattr(page.st, "error", error)
+
+        page._set_vitals_action_result(True, "started")
+        page._show_vitals_action_result()
+
+        success.assert_called_once_with("started")
+        error.assert_not_called()
+        assert page._VITALS_ACTION_RESULT_KEY not in state
+
+    def test_set_and_show_error_result(self, monkeypatch):
+        state = {}
+        monkeypatch.setattr(page.st, "session_state", state)
+        success = MagicMock()
+        error = MagicMock()
+        monkeypatch.setattr(page.st, "success", success)
+        monkeypatch.setattr(page.st, "error", error)
+
+        page._set_vitals_action_result(False, "failed")
+        page._show_vitals_action_result()
+
+        error.assert_called_once_with("failed")
+        success.assert_not_called()
+        assert page._VITALS_ACTION_RESULT_KEY not in state

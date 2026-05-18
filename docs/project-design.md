@@ -247,7 +247,7 @@ src/superhealth/
 ├── reminders/                   # 就医提醒系统
 │   ├── reminder_config.py         # 病情规则配置（ReminderRule dataclass）
 │   ├── appointment_scheduler.py   # 自动推算下次应诊日期 + 写入 DB
-│   └── reminder_notifier.py       # 微信通知（14天/7天阈值）+ 日报板块
+│   └── reminder_notifier.py       # 消息通知（14天/7天阈值）+ 日报板块
 │
 ├── insights/                    # 周期性洞察
 │   └── llm_insights.py            # 周报生成（趋势+相关性+LLM 洞察）
@@ -317,7 +317,7 @@ run_garmin_daily.sh (cron 7:00, 带 flock 防并发)
        │       GoalManager.track_daily_progress() → 对每个 active goal
        │       计算当前值 → 写入 goal_progress（低频指标跳过）
        │
-       └─ [10] 预约提醒: 刷新 appointments 表 → 检查 14/7 天阈值 → 微信通知
+       └─ [10] 预约提醒: 刷新 appointments 表 → 检查 14/7 天阈值 → 消息通知
 ```
 
 每一步记录 `sync_logs`，单步失败不阻断后续步骤。
@@ -337,10 +337,17 @@ run_garmin_daily.sh (cron 7:00, 带 flock 防并发)
 email    = "your_email_or_phone"
 password = "your_password"
 
-[wechat]
-account_id = "your-bot-account-id"
-channel    = "openclaw-weixin"
-target     = "openid@im.wechat"
+[channel]
+type       = "wechat"  # wechat 或 wecom
+
+# type = "wechat" 时填写
+account_id = "your-openclaw-account-id"
+target     = "your-wechat-openid"
+
+# type = "wecom" 时填写
+bot_id = ""
+secret = ""
+touser = ""
 
 [vitals]
 api_token = "your-secret-token"
@@ -740,7 +747,7 @@ python -c "from superhealth.database import init_db; init_db()"
 | 3 | 体征自动采集（Health Auto Export → Flask → SQLite） | ✅ 完成 | 2026-03-29 |
 | 4 | 智能健康决策引擎（画像+模型选择+LLM+天气+高级日报） | ✅ 完成 | 2026-04-04 |
 | 5 | 自动反馈闭环（compliance+效果追踪+策略学习） | ✅ 完成 | 2026-04-04 |
-| 6 | 就医提醒系统（3 种病情+自动推算+微信通知） | ✅ 完成 | 2026-04-06 |
+| 6 | 就医提醒系统（3 种病情+自动推算+消息通知） | ✅ 完成 | 2026-04-06 |
 | 7 | Web 可视化仪表盘（8 页面+5 预测模型） | ✅ 完成 | 2026-04-10 |
 | 8 | 阶段性目标子系统（目标存储+指标追踪+目标注入+Dashboard） | ✅ 完成 | 2026-04-21 |
 | 9 | Dashboard 概览 KPI 增强 + 策略学习鲁棒性提升 + 日历采集集成 | ✅ 完成 | 2026-04-27 |
@@ -753,7 +760,7 @@ python -c "from superhealth.database import init_db; init_db()"
 - 配置文件 `~/.superhealth/config.toml` 权限 0o600，包含所有 API 密钥
 - 数据库 `health.db` 仅本地存储，不上传云端（.gitignore 已排除）
 - 仪表盘支持密码保护（可选，配置 `[dashboard].password`，含记住密码功能）
-- 微信推送通过 openclaw 本地命令，不经第三方中转
+- 消息推送通过 OpenClaw/QClaw 本地命令，不经第三方中转
 - 医学建议由 LLM 生成，仅供数据洞察参考，不替代医生诊断
 - `daily_health_audit` 表记录核心指标变更历史，支持追溯效果评估变化原因
 - 实验框架的统计结论基于个人数据，样本量有限，不具普适性；显著性阈值放宽至 `p<0.1`，仅供个人决策参考

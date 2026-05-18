@@ -6,10 +6,17 @@
 email    = "your_email@example.com"
 password = "your_password"
 
-[wechat]
-account_id = "your-bot-account-id"
-channel    = "your-channel"
+[channel]
+type       = "wechat"  # wechat 或 wecom
+
+# type = "wechat" 时填写
+account_id = "your-openclaw-account-id"
 target     = "your-wechat-openid"
+
+# type = "wecom" 时填写
+bot_id = ""
+secret = ""
+touser = ""
 
 [vitals]
 api_token = "your-secret-token"   # Health Auto Export 鉴权 token
